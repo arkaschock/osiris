@@ -66,6 +66,10 @@ class OpenAlexParser():
 
         # set up OpenAlex
         self.openalex = OpenAlex(config['DEFAULT'].get('AdminMail'))
+        # Inject API key — required since OpenAlex made keys mandatory in Feb 2026
+        api_key = config['OpenAlex'].get('ApiKey', '')
+        if api_key:
+            self.openalex._api_caller.headers['Authorization'] = f'Bearer {api_key}'
         
         self.possible_dupl = []
         if not ignore_duplicates:
@@ -118,12 +122,12 @@ class OpenAlexParser():
             return None
 
         new_journal = {
-            'journal': source['display_name'],
-            'abbr': source['abbreviated_title'],
-            'publisher': source['host_organization_name'],
-            'issn': source['issn'],
-            'oa': source['is_oa'],
-            'openalex': source['id'].replace('https://openalex.org/', '')
+            'journal': source.get('display_name'),
+            'abbr': source.get('abbreviated_title'),
+            'publisher': source.get('host_organization_name'),
+            'issn': source.get('issn'),
+            'oa': source.get('is_oa'),
+            'openalex': (source.get('id') or '').replace('https://openalex.org/', '')
         }
         new_doc = self.osiris['journals'].insert_one(new_journal)
 
