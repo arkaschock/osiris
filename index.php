@@ -74,6 +74,28 @@ if (defined('USER_MANAGEMENT') && strtoupper(USER_MANAGEMENT) == 'AUTH') {
 
 include_once BASEPATH . "/routes/login.php";
 
+function preferenceCookieSettings(): array
+{
+    $settings = [
+        'expires' => time() + 86400,
+        'path' => ROOTPATH . '/',
+        'httponly' => false,
+        'samesite' => 'Lax',
+    ];
+
+    $host = parse_url('http://' . ($_SERVER['HTTP_HOST'] ?? ''), PHP_URL_HOST);
+    if (
+        !empty($host)
+        && $host !== 'localhost'
+        && $host !== 'testserver'
+        && filter_var($host, FILTER_VALIDATE_IP) === false
+    ) {
+        $settings['domain'] = $host;
+    }
+
+    return $settings;
+}
+
 // Route::get('/test', function () {
 //     include_once BASEPATH . "/php/init.php";
 //     include_once BASEPATH . "/php/LDAPInterface.php";
@@ -98,14 +120,7 @@ Route::get('/set-preferences', function () {
     // Language settings and cookies
     if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'GET' && array_key_exists('language', $_GET)) {
         $_COOKIE['osiris-language'] = $_GET['language'] === 'en' ? 'en' : 'de';
-        $domain = ($_SERVER['HTTP_HOST'] != 'testserver') ? $_SERVER['HTTP_HOST'] : false;
-        setcookie('osiris-language', $_COOKIE['osiris-language'], [
-            'expires' => time() + 86400,
-            'path' => ROOTPATH . '/',
-            'domain' =>  $domain,
-            'httponly' => false,
-            'samesite' => 'Lax',
-        ]);
+        setcookie('osiris-language', $_COOKIE['osiris-language'], preferenceCookieSettings());
         // save language in user profile
         if (isset($_SESSION['loggedin']) && $_SESSION['loggedin'] === true
             && isset($_SESSION['username']) && !empty($_SESSION['username'])
@@ -118,15 +133,7 @@ Route::get('/set-preferences', function () {
     }
     // check if accessibility settings are given
     if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'GET' && array_key_exists('accessibility', $_GET)) {
-        // define base parameter
-        $domain = $_SERVER['HTTP_HOST'];
-        $cookie_settings = [
-            'expires' => time() + 86400,
-            'path' => ROOTPATH . '/',
-            'domain' =>  $domain,
-            'httponly' => false,
-            'samesite' => 'Lax',
-        ];
+        $cookie_settings = preferenceCookieSettings();
 
         // set cookies for current sessions
         $_COOKIE['D3-accessibility-contrast'] = $_GET['accessibility']['contrast'] ?? '';
