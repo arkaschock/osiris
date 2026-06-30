@@ -4,7 +4,7 @@
  * Page to see all proposals
  * 
  * This file is part of the OSIRIS package.
- * Copyright (c) 2024 Julia Koblitz, OSIRIS Solutions GmbH
+ * Copyright (c) 2026 Julia Koblitz, OSIRIS Solutions GmbH
  * 
  * @link        /proposals
  *
@@ -12,7 +12,7 @@
  * @since       1.5.0
  * @category   Projects
  * 
- * @copyright	Copyright (c) 2024 Julia Koblitz, OSIRIS Solutions GmbH
+ * @copyright	Copyright (c) 2026 Julia Koblitz, OSIRIS Solutions GmbH
  * @author		Julia Koblitz <julia.koblitz@osiris-solutions.de>
  * @license     MIT
  */
@@ -39,7 +39,7 @@ $filter = [];
 $tagsEnabled = $Settings->featureEnabled('tags');
 ?>
 
-<link rel="stylesheet" href="<?= ROOTPATH ?>/css/projecttable.css">
+<link rel="stylesheet" href="<?= ROOTPATH ?>/css/projecttable.css?v=<?= OSIRIS_BUILD ?>">
 
 <style>
     .index {
@@ -485,7 +485,7 @@ $tagsEnabled = $Settings->featureEnabled('tags');
     function renderTopic(data) {
         let topics = '';
         if (data && data.length > 0) {
-            topics = '<span class="float-right topic-icons">'
+            topics = '<span class="topic-icons">'
             data.forEach(function(topic) {
                 topics += `<a href="<?= ROOTPATH ?>/topics/view/${topic}" class="topic-icon topic-${topic}"></a> `
             })
@@ -530,9 +530,6 @@ $tagsEnabled = $Settings->featureEnabled('tags');
             type: 'GET',
             deferRender: true,
             responsive: true,
-            language: {
-                url: lang(null, ROOTPATH + '/js/datatables/de-DE.json')
-            },
             buttons: [{
                 extend: 'excelHtml5',
                 exportOptions: {
@@ -731,6 +728,10 @@ $tagsEnabled = $Settings->featureEnabled('tags');
                 filterProjects(document.getElementById(tagId), tag, 13)
             }
 
+            if (hash.type !== undefined) {
+                filterProjects(document.getElementById(hash.type + '-btn'), hash.type, 1)
+            }
+
             if (hash.search !== undefined) {
                 dataTable.search(decodeURIComponent(hash.search)).draw();
             }
@@ -768,15 +769,9 @@ $tagsEnabled = $Settings->featureEnabled('tags');
         dataTable.on('draw', function(e, settings) {
             if (initializing) return;
             var info = dataTable.page.info();
-            var search = settings.oPreviousSearch.sSearch;
-            if (search) {
-                search = encodeURIComponent(search);
-            } else {
-                search = null;
-            }
             writeHash({
                 page: info.page + 1,
-                search: search
+                search: dataTable.search(),
             })
         });
 

@@ -1,4 +1,21 @@
 <?php
+
+/**
+ * Page to manage custom fields
+ * 
+ * This file is part of the OSIRIS package.
+ * Copyright (c) 2026 Julia Koblitz, OSIRIS Solutions GmbH
+ * 
+ * @link        /admin/fields/<field_id>
+ *
+ * @package     OSIRIS
+ * @since       1.3.1
+ * 
+ * @copyright	Copyright (c) 2026 Julia Koblitz, OSIRIS Solutions GmbH
+ * @author		Julia Koblitz <julia.koblitz@osiris-solutions.de>
+ * @license     MIT
+ */
+
 $formaction = ROOTPATH;
 if (!empty($form) && isset($form['id'])) {
     $formaction .= "/crud/fields/update/" . $form['id'];
@@ -103,6 +120,7 @@ $affiliation = preg_replace('/[^a-zA-Z0-9]/', '', $affiliation);
                     <select class="form-control" name="values[format]" id="format" onchange="updateFields(this.value)">
                         <option value="string" <?= ($form['format'] ?? '') == 'string' ? 'selected' : '' ?>><?= lang('Normal Text', 'Normaler Text') ?></option>
                         <option value="text" <?= ($form['format'] ?? '') == 'text' ? 'selected' : '' ?>><?= lang('Long text', 'Langer Text') ?></option>
+                        <option value="text-format" <?= ($form['format'] ?? '') == 'text-format' ? 'selected' : '' ?>><?= lang('Text with formatting', 'Text mit Formatierung') ?></option>
                         <option value="int" <?= ($form['format'] ?? '') == 'int' ? 'selected' : '' ?>><?= lang('Integer', 'Ganzzahl') ?></option>
                         <option value="float" <?= ($form['format'] ?? '') == 'float' ? 'selected' : '' ?>><?= lang('Float', 'Gleitkommazahl') ?></option>
                         <option value="list" <?= ($form['format'] ?? '') == 'list' ? 'selected' : '' ?>><?= lang('Dropdown (Select from list)', 'Dropdown (Wähle aus einer Liste)') ?></option>
@@ -214,6 +232,8 @@ $affiliation = preg_replace('/[^a-zA-Z0-9]/', '', $affiliation);
             ['modules' => ['$in' => [$id, $id . '*']]],
             ['fields.id' => $id]
         ]
+    ], [
+        'projection' => ['icon' => 1, 'name' => 1, 'id' => 1, 'name_de' => 1, 'parent' => 1]
     ])->toArray();
 
     $projects = $osiris->adminProjects->find([
@@ -243,13 +263,13 @@ $affiliation = preg_replace('/[^a-zA-Z0-9]/', '', $affiliation);
                 <td>
                     <?php if (!empty($activities)) { ?>
                         <?php foreach ($activities as $a) { ?>
-                            <a href="<?= ROOTPATH ?>/admin/types/<?= $a['id'] ?>" class="badge primary">
-                                <i class="ph ph-folder-open ph-<?= $a['icon'] ?? '' ?>"></i>
+                            <a href="<?= ROOTPATH ?>/admin/types/<?= $a['id'] ?>" class="badge badge-<?= $a['parent'] ?> mb-5">
+                                <i class="ph ph-<?= $a['icon'] ?? 'folder-open' ?>"></i>
                                 <?= lang($a['name'] ?? $a['id'], $a['name_de'] ?? null) ?>
                             </a>
                         <?php } ?>
                     <?php } else { ?>
-                        <em><?= lang('No activity type uses this field.', 'Keine Aktivitätstyp verwendet dieses Feld.') ?></em>
+                        <em class="text-muted"><?= lang('No activity type uses this field.', 'Keine Aktivitätstyp verwendet dieses Feld.') ?></em>
                     <?php } ?>
                 </td>
             </tr>
@@ -266,7 +286,7 @@ $affiliation = preg_replace('/[^a-zA-Z0-9]/', '', $affiliation);
                             </a>
                         <?php } ?>
                     <?php } else { ?>
-                        <em><?= lang('No project type uses this field.', 'Kein Projekttyp verwendet dieses Feld.') ?></em>
+                        <em class="text-muted"><?= lang('No project type uses this field.', 'Kein Projekttyp verwendet dieses Feld.') ?></em>
                     <?php } ?>
                 </td>
             </tr>
@@ -279,7 +299,7 @@ $affiliation = preg_replace('/[^a-zA-Z0-9]/', '', $affiliation);
                         <i class="ph ph-check-circle text-success"></i>
                         <?= lang('Persons use this field.', 'Personen verwenden dieses Feld.') ?>
                     <?php } else { ?>
-                        <em><?= lang('Persons do not use this field.', 'Personen verwenden dieses Feld nicht.') ?></em>
+                        <em class="text-muted"><?= lang('Persons do not use this field.', 'Personen verwenden dieses Feld nicht.') ?></em>
                     <?php } ?>
                 </td>
             </tr>
@@ -292,7 +312,7 @@ $affiliation = preg_replace('/[^a-zA-Z0-9]/', '', $affiliation);
                         <i class="ph ph-check-circle text-success"></i>
                         <?= lang('Infrastructures use this field.', 'Infrastrukturen verwenden dieses Feld.') ?>
                     <?php } else { ?>
-                        <em><?= lang('Infrastructures do not use this field.', 'Infrastrukturen verwenden dieses Feld nicht.') ?></em>
+                        <em class="text-muted"><?= lang('Infrastructures do not use this field.', 'Infrastrukturen verwenden dieses Feld nicht.') ?></em>
                     <?php } ?>
                 </td>
             </tr>
@@ -302,24 +322,25 @@ $affiliation = preg_replace('/[^a-zA-Z0-9]/', '', $affiliation);
 
 <?php } ?>
 
+<?php if (!empty($form) && isset($form['id'])) { ?>
+    <div class="alert danger mt-20">
+        <form action="<?= ROOTPATH ?>/crud/fields/delete/<?= $field['_id'] ?>" method="post">
+            <h5 class="title">
+                <?= lang('Delete this field', 'Dieses Feld löschen') ?>
+            </h5>
+            <p>
+                <?= lang('Are you sure you want to delete this field? This action cannot be undone.', 'Bist du sicher, dass du dieses Feld löschen möchtest? Diese Aktion kann nicht rückgängig gemacht werden.') ?>
+                <br>
+                <?= lang('<b>Hint:</b> this won\'t automatically remove the field from all associated forms! Please make sure to do this before removing the field.', '<b>Hinweis:</b> Dies entfernt das Feld nicht automatisch aus allen zugehörigen Formularen! Bitte stelle sicher, dies vor dem Entfernen des Feldes zu tun.') ?>
+                <br>
+                <?= lang('<b>Hint:</b> We won\'t remove any data from activities.', '<b>Hinweis:</b> Wir werden keine Daten aus Aktivitäten entfernen.') ?>
+            </p>
 
-<div class="alert danger mt-20">
-    <form action="<?= ROOTPATH ?>/crud/fields/delete/<?= $field['_id'] ?>" method="post">
-        <h5 class="title">
-            <?= lang('Delete this field', 'Dieses Feld löschen') ?>
-        </h5>
-        <p>
-            <?= lang('Are you sure you want to delete this field? This action cannot be undone.', 'Bist du sicher, dass du dieses Feld löschen möchtest? Diese Aktion kann nicht rückgängig gemacht werden.') ?>
-        <br>
-            <?= lang('<b>Hint:</b> this won\'t automatically remove the field from all associated forms! Please make sure to do this before removing the field.', '<b>Hinweis:</b> Dies entfernt das Feld nicht automatisch aus allen zugehörigen Formularen! Bitte stelle sicher, dies vor dem Entfernen des Feldes zu tun.') ?>
-        <br>
-            <?= lang('<b>Hint:</b> We won\'t remove any data from activities.', '<b>Hinweis:</b> Wir werden keine Daten aus Aktivitäten entfernen.') ?>
-        </p>
+            <button type="submit" class="btn danger mt-10"><i class="ph-duotone ph-trash text-danger"></i> <?= lang('Delete', 'Löschen') ?></button>
 
-        <button type="submit" class="btn danger mt-10"><i class="ph-duotone ph-trash text-danger"></i> <?= lang('Delete', 'Löschen') ?></button>
-
-    </form>
-</div>
+        </form>
+    </div>
+<?php } ?>
 
 
 

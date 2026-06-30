@@ -4,12 +4,12 @@
  * Class for all project associated methods.
  * 
  * This file is part of the OSIRIS package.
- * Copyright (c) 2024 Julia Koblitz, OSIRIS Solutions GmbH
+ * Copyright (c) 2026 Julia Koblitz, OSIRIS Solutions GmbH
  * 
  * @package OSIRIS
  * @since 1.3.0
  * 
- * @copyright	Copyright (c) 2024 Julia Koblitz, OSIRIS Solutions GmbH
+ * @copyright	Copyright (c) 2026 Julia Koblitz, OSIRIS Solutions GmbH
  * @author		Julia Koblitz <julia.koblitz@osiris-solutions.de>
  * @license     MIT
  */
@@ -76,7 +76,10 @@ class Groups
 
         $groups = $this->osiris->groups->find(
             [],
-            ['sort' => ['level' => 1, 'order' => 1, 'inactive' => 1]]
+            [
+                'sort' => ['level' => 1, 'order' => 1, 'inactive' => 1],
+                'projection' => ['id' => 1, 'name' => 1, 'name_de' => 1, 'parent' => 1, 'unit' => 1, 'color' => 1, 'inactive' => 1, 'level' => 1, 'head' => 1]
+            ]
         )->toArray();
         foreach ($groups as $g) {
             $this->groups[$g['id']] = $g;
@@ -265,22 +268,6 @@ class Groups
             }
         }
         return $edit_perm;
-    }
-
-    public function getDeptFromAuthors($authors)
-    {
-        $result = [];
-        $authors = DB::doc2Arr($authors);
-        if (empty($authors)) return [];
-        $users = array_filter(array_column($authors, 'user'));
-        foreach ($users as $user) {
-            $user = $this->DB->getPerson($user);
-            if (empty($user) || empty($user['depts'])) continue;
-            $dept = $this->deptHierarchy($user['depts'], 1)['id'];
-            if (in_array($dept, $result)) continue;
-            $result[] = $dept;
-        }
-        return $result;
     }
 
     public function getHierarchy()

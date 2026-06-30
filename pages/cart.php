@@ -4,14 +4,14 @@
  * Page to see and edit the download cart
  * 
  * This file is part of the OSIRIS package.
- * Copyright (c) 2024 Julia Koblitz, OSIRIS Solutions GmbH
+ * Copyright (c) 2026 Julia Koblitz, OSIRIS Solutions GmbH
  * 
  * @link /cart
  *
  * @package OSIRIS
  * @since 1.0 
  * 
- * @copyright	Copyright (c) 2024 Julia Koblitz, OSIRIS Solutions GmbH
+ * @copyright	Copyright (c) 2026 Julia Koblitz, OSIRIS Solutions GmbH
  * @author		Julia Koblitz <julia.koblitz@osiris-solutions.de>
  * @license     MIT
  */
@@ -110,7 +110,7 @@ $cart = readCart();
 
             <div class="custom-radio d-inline-block ml-10">
                 <input type="radio" name="format" id="format-bibtex" value="bibtex">
-                <label for="format-bibtex">BibTex</label>
+                <label for="format-bibtex">BibTeX</label>
             </div>
 
         </div>

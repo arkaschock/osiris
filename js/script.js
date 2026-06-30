@@ -1,18 +1,27 @@
 
 
-var SCIENTISTS;
 $(document).ready(function () {
-    var scientists = $('#scientist-list option').map(function (index, item) {
-        return item.value
-    })
-    SCIENTISTS = Object.values(scientists)
-
     // scroll to active sidebar menu if available
     if ($('.sidebar-menu a.active').length !== 0) {
         $('.sidebar').animate({
             scrollTop: $(".sidebar-menu a.active").offset().top - 200
         }, 100);
     }
+
+    // Hide decorative Phosphor icons from screen readers
+    $('i.ph, i.ph-duotone').each(function () {
+        const $icon = $(this);
+
+        // Skip if explicitly labeled
+        if ($icon.attr('aria-label') || $icon.attr('aria-labelledby')) {
+            return;
+        }
+
+        $icon.attr({
+            'aria-hidden': 'true',
+            'role': 'presentation'
+        });
+    });
 })
 
 function initQuill(element, controls = 'basic') {
@@ -73,31 +82,51 @@ function initQuill(element, controls = 'basic') {
         $(element).parent().find('.ql-toolbar').append(additional)
     }
 
+    return quill;
 
 }
 
 function quillEditor(selector) {
+    const maxImageSize = 1024 * 1024; // 1 MB
     const quill = new Quill('#' + selector + '-quill', {
         modules: {
-            toolbar: [
-                [{
-                    header: [1, 2, 3, false]
-                }],
-                ['bold', 'italic', 'underline'],
-                [{
-                    'list': 'ordered'
-                },
-                {
-                    'list': 'bullet'
-                }],
-                [{
-                    'script': 'sub'
-                }, {
-                    'script': 'super'
-                }],
-                ['link', 'image'],
-                ['clean']
-            ],
+            toolbar: {
+                container: [
+                    [{ header: [1, 2, 3, false] }],
+                    ['bold', 'italic', 'underline'],
+                    [{ list: 'ordered' }, { list: 'bullet' }],
+                    [{ script: 'sub' }, { script: 'super' }],
+                    ['link', 'image'],
+                    ['clean']
+                ],
+                handlers: {
+                    image: function () {
+                        const input = document.createElement('input');
+                        input.setAttribute('type', 'file');
+                        input.setAttribute('accept', 'image/*');
+                        input.click();
+                        input.onchange = () => {
+                            const file = input.files[0];
+                            if (!file) return;
+                            if (file.size > maxImageSize) {
+                                toastError(lang(
+                                    'The selected image is too large. Maximum size is 1 MB.',
+                                    'Das ausgewählte Bild ist zu groß. Maximal erlaubt sind 1 MB.'
+                                ));
+                                return;
+                            }
+                            const reader = new FileReader();
+                            reader.onload = e => {
+                                const range = quill.getSelection(true);
+                                quill.insertEmbed(range.index, 'image', e.target.result);
+                                quill.setSelection(range.index + 1);
+                            };
+                            reader.readAsDataURL(file);
+                        };
+                    }
+                }
+
+            }
         },
         formats: ['italic', 'bold', 'underline', 'script', 'link', 'image', 'list', 'header'],
         placeholder: lang('Start typing here ...', 'Hier tippen ...'),
@@ -461,13 +490,14 @@ function updateCart(add = true) {
 function addToCart(el, id) {//.addClass('animate__flip')
     // document.cookie = "username=John Doe; expires=Thu, 18 Dec 2013 12:00:00 UTC"; 
     var fav = osirisJS.readCookie('osiris-cart')
+    var action;
     if (fav) {
         var favlist = fav.split(',')
         // console.log(favlist);
         const index = favlist.indexOf(id);
         if (index > -1) {
             favlist.splice(index, 1);
-            console.info("remove");
+            action = "remove";
             updateCart(false)
             toastInfo(lang('Item removed from your collection.', 'Aktivität aus deiner Sammlung entfernt.'))
         } else {
@@ -476,14 +506,14 @@ function addToCart(el, id) {//.addClass('animate__flip')
                 return;
             }
             favlist.push(id)
-            console.info("add");
+            action = "add";
             toastInfo(lang('Item added to your collection. <a class="link" href="' + ROOTPATH + '/cart">View collection</a>', 'Aktivität zu deiner Sammlung hinzugefügt. <a class="link" href="' + ROOTPATH + '/cart">Sammlung ansehen</a>'))
             updateCart(true)
         }
         fav = favlist.join(',')
     } else {
         fav = id
-        console.info("add");
+        action = "add";
         updateCart(true)
         toastInfo(lang('Item added to your collection. <a class="link" href="' + ROOTPATH + '/cart">View collection</a>', 'Aktivität zu deiner Sammlung hinzugefügt. <a class="link" href="' + ROOTPATH + '/cart">Sammlung ansehen</a>'))
     }
@@ -491,7 +521,12 @@ function addToCart(el, id) {//.addClass('animate__flip')
     if (el === null) {
         location.reload()
     } else {
-        $(el).find('i').toggleClass('ph ph-duotone').toggleClass('ph').toggleClass('text-success')
+        if (action == "add") {
+            $(el).find('i').addClass('text-success').removeClass('ph').addClass('ph-duotone')
+        } else {
+            $(el).find('i').removeClass('text-success').removeClass('ph-duotone').addClass('ph')
+        }
+        console.log(action);
     }
 
 }

@@ -5,7 +5,7 @@
  *
  * This file is part of the OSIRIS package 
  * 
- * @copyright	Copyright (c) 2024 Julia Koblitz, OSIRIS Solutions GmbH
+ * @copyright	Copyright (c) 2026 Julia Koblitz, OSIRIS Solutions GmbH
  * @link		https://github.com/JKoblitz/osiris
  * @version		1.2
  * @author		Julia Koblitz <julia.koblitz@osiris-solutions.de>
@@ -39,6 +39,19 @@ class DB
 {
 
     public $db = null;
+    public static $colors = [
+        "#af0832",
+        "#0a8a1b",
+        "#d1b70b",
+        "#183bba",
+        "#f58231",
+        "#911eb4",
+        "#46f0f0",
+        "#f032e6",
+        "#bcf60c",
+        "#fabebe",
+        "#008080"
+    ];
 
     public function __construct()
     {
@@ -154,6 +167,10 @@ class DB
 
         if (empty($user)) return $issues;
 
+        if (!isset($scientist)) {
+            $scientist = $this->db->persons->findOne(['username' => $user], ['projection' => ['lastversion' => 1, 'approved' => 1, 'roles' => 1]]);
+        }
+
         // Immer: aktuelles Notifications-Dokument laden (falls vorhanden)
         $existing = $this->db->notifications->findOne(['user' => $user]);
         $messages = $existing['messages'] ?? []; // bestehende Nachrichten beibehalten
@@ -161,7 +178,7 @@ class DB
         $messages = array_filter($messages, function ($msg) {
             return !($msg['read'] ?? false);
         });
-
+        $force = true;
         if ($now - $last > 60 || $force) {
             // ➤ Nur bei Bedarf: aufwendige Checks durchführen
             $hasNotification = count($messages);
@@ -200,15 +217,15 @@ class DB
             }
 
             // Prüfe auf neue OSIRIS-Version
-            $scientist = $this->db->persons->findOne(['username' => $user], ['projection' => ['lastversion' => 1, 'approved' => 1, 'roles' => 1]]);
-            if (lang('en', 'de') == 'de' && (empty($scientist['lastversion'] ?? '') || $scientist['lastversion'] !== OSIRIS_VERSION)) {
-                $issues['version'] = [
-                    'name' => lang('New version available', 'Neue Version verfügbar'),
-                    'count' => 1,
-                    'key' => 'version',
-                ];
-                $hasNotification += 1;
-            }
+            // $scientist = $this->db->persons->findOne(['username' => $user], ['projection' => ['lastversion' => 1, 'approved' => 1, 'roles' => 1]]);
+            // if (lang('en', 'de') == 'de' && (empty($scientist['lastversion'] ?? '') || $scientist['lastversion'] !== OSIRIS_VERSION)) {
+            //     $issues['version'] = [
+            //         'name' => lang('New version available', 'Neue Version verfügbar'),
+            //         'count' => 1,
+            //         'key' => 'version',
+            //     ];
+            //     $hasNotification += 1;
+            // }
 
             // Prüfe auf Quartalsfreigabe
             $reportingEnabled = $this->db->adminFeatures->findOne(['feature' => 'quarterly-reporting']);
@@ -413,6 +430,8 @@ class DB
             $con = $this->db->activities->findOne(['_id' => $id]);
         } elseif ($type == 'conference') {
             $con = $this->db->conferences->findOne(['_id' => $id]);
+        } elseif ($type == 'organization') {
+            $con = $this->db->organizations->findOne(['_id' => $id]);
         }
         return $this->doc2Arr($con);
     }
@@ -540,7 +559,7 @@ class DB
 
     public function portfolioPersonLink($username, $basepath = null)
     {
-        if (empty($basepath)){
+        if (empty($basepath)) {
             $basepath = $this->db->adminGeneral->findOne(['key' => 'portfolio_url'], ['projection' => ['value' => 1]]);
             $basepath = $basepath['value'] ?? ROOTPATH;
         }
@@ -659,33 +678,6 @@ class DB
     }
 
     /**
-     * Get journal impact factor for a specific year (minus one)
-     *
-     * @param array $journal Journal document.
-     * @param int $year Optional. year, defaults to current year.
-     * @return float impact factor.
-     */
-    public function impact_from_year($journal, $year = null)
-    {
-        if (empty($year)) $year = CURRENTYEAR;
-        $if = 0;
-        if (!isset($journal['impact']) || empty($journal['impact'])) return 0;
-
-        // get impact factors from journal
-        $impact = DB::doc2Arr($journal['impact']);
-        // sort ascending by year
-        usort($impact, function ($a, $b) {
-            return $a['year'] - $b['year'];
-        });
-
-        foreach ($impact as $i) {
-            if ($i['year'] >= $year) break;
-            $if = $i['impact'];
-        }
-        return $if;
-    }
-
-    /**
      * Get latest journal impact factor
      *
      * @param array $journal Journal document.
@@ -724,19 +716,19 @@ class DB
      * Get document impact factor
      *
      * @param array $doc Activity document.
-     * @param int $year Optional. Year. Defaults to document year
      * @return float impact factor.
      */
-    public function get_impact($doc, $year = null)
+    public function get_impact($doc)
     {
-        $journal = $this->getJournal($doc);
-
-        if (empty($journal)) return null;
-
-        if ($year == null) {
-            $year = intval($doc['year'] ?? 1);
-        }
-        return $this->impact_from_year($journal, $year);
+        if (!isset($doc['journal_id']) || empty($doc['journal_id'])) return null;
+        $impact = $this->db->journals->aggregate([
+            ['$match' => ['_id' => $this->to_ObjectID($doc['journal_id'] ?? null)]],
+            ['$unwind' => '$impact'],
+            ['$match' => ['impact.year' => intval($doc['year'] ?? 1) - 1]],
+            ['$project' => ['impact_factor' => '$impact.impact', '_id' => 0]]
+        ])->toArray();
+        if (empty($impact)) return null;
+        return $impact[0]['impact_factor'] ?? null;
     }
     /**
      * Get document quartile
@@ -880,32 +872,6 @@ class DB
     }
 
 
-    /**
-     * Convert list of authors into unique list of departments
-     *
-     * @param array $authors List of activity authors.
-     * @return array unique list of departments.
-     * 
-     * @deprecated 1.3.0
-     */
-    public function getDeptFromAuthors($authors)
-    {
-        $result = [];
-        $authors = $this->doc2Arr($authors);
-        $authors = array_filter($authors, function ($a) {
-            return boolval($a['aoi'] ?? false);
-        });
-        if (empty($authors)) return [];
-        $users = array_filter(array_column($authors, 'user'));
-        foreach ($users as $user) {
-            $user = $this->getPerson($user);
-            if (empty($user) || empty($user['dept'])) continue;
-            if (in_array($user['dept'], $result)) continue;
-            $result[] = $user['dept'];
-        }
-        return $result;
-    }
-
     private function featureEnabled($feature, $default = false)
     {
         $f = $this->db->adminFeatures->findOne(['feature' => $feature]);
@@ -997,18 +963,6 @@ class DB
         $y = CURRENTYEAR - 1;
         $m = CURRENTMONTH;
         $q = ceil($m / 3);
-        // $infrastructures = $this->db->infrastructures->find([
-        //     'persons' => ['$elemMatch' => ['user' => $user, 'reporter' => true]],
-        //     'start_date' => ['$lte' => $y . '-12-31'],
-        //     '$or' => [
-        //         ['end_date' => null],
-        //         ['end_date' => ['$gte' => $y . '-01-01']]
-        //     ],
-        //     'statistics.year' => ['$ne' => $y]
-        // ], ['projection' => ['id' => ['$toString' => '$_id']]]);
-        // foreach ($infrastructures as $infra) {
-        //     $issues['infrastructure'][] = $infra['id'];
-        // }
 
         // 1) Infrastrukturen holen, für die die Person Reporter ist und die im aktuellen Jahr aktiv sind
         $infrasCursor = $this->db->infrastructures->find([
@@ -1079,7 +1033,7 @@ class DB
             ];
         }
 
-        if ($this->featureEnabled('nagoya', false)){
+        if ($this->featureEnabled('nagoya', false)) {
             $proposals = $this->db->proposals->find(
                 [
                     'persons.user' => $user,
@@ -1225,5 +1179,32 @@ class DB
         // sort by name
         asort($result);
         return $result;
+    }
+
+
+
+    public static function getLogo($item, $class = "org-logo", $alt = "")
+    {
+        $placeholder = '<div class="' . $class . '-placeholder">' . $alt . '</div> ';
+        if (!isset($item) || empty($item) || !isset($item['image'])) {
+            return $placeholder;
+        }
+        $img = $item['image'];
+        if (!isset($img) || empty($img)) {
+            return $placeholder;
+        }
+        $type = $img['type'];
+        if ($img['type'] == 'svg') {
+            $type = 'image/svg+xml';
+        } else {
+            $type = 'image/' . $img['type'];
+        }
+        $img = $img['data']->getData();
+        return "<img src='data:$type;base64,$img' alt='" . e($alt) . "' class='$class'>";
+    }
+
+    public static function printLogo($item, $class = "org-logo", $alt = "")
+    {
+        echo self::getLogo($item, $class, $alt);
     }
 }

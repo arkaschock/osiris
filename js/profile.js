@@ -2,7 +2,7 @@ var activitiesTable = false,
     publicationTable = false,
     projectsExists = false,
     coauthorsExists = false,
-    conceptsExists = false,
+    spectrumExists = false,
     wordcloudExists = false;
 
 function navigate(key) {
@@ -18,7 +18,6 @@ function navigate(key) {
             publicationTable = true;
             initActivities('#publication-table', {
                 page: 'my-activities',
-                display_activities: 'web',
                 user: CURRENT_USER,
                 type: 'publication'
             })
@@ -31,7 +30,6 @@ function navigate(key) {
             activitiesTable = true;
             initActivities('#activities-table', {
                 page: 'my-activities',
-                display_activities: 'web',
                 user: CURRENT_USER,
                 type: { '$ne': 'publication' }
             })
@@ -50,10 +48,10 @@ function navigate(key) {
             coauthorNetwork('#chord', { user: CURRENT_USER })
             break;
 
-        case 'concepts':
-            if (conceptsExists) break;
-            conceptsExists = true;
-            conceptTooltip()
+        case 'spectrum':
+            if (spectrumExists) break;
+            spectrumExists = true;
+            spectrumTooltip()
             break;
 
         case 'wordcloud':
@@ -85,6 +83,42 @@ $(document).ready(function () {
             navigate(hash);
         }
     }
+
+
+    $("#toggle-show-5").click(function () {
+        $('#chord').empty()
+        $('#legend').empty()
+        coauthorNetwork('#chord', { user: CURRENT_USER })
+        $('#coauthor-network-info-5').show()
+        $('#coauthor-network-info-all').hide()
+        $(this).attr('disabled', true)
+        $('#toggle-show-all').attr('disabled', false)
+    });
+
+    $("#toggle-show-all").click(function () {
+        $('#chord').empty()
+        $('#legend').empty()
+        coauthorNetwork('#chord', { user: CURRENT_USER, all: true })
+        $('#coauthor-network-info-5').hide()
+        $('#coauthor-network-info-all').show()
+        $(this).attr('disabled', true)
+        $('#toggle-show-5').attr('disabled', false)
+    });
+
+    $("#toggle-wordcloud-activities").click(function () {
+        $('#wordcloud-chart').empty()
+        wordcloud('#wordcloud-chart', { user: CURRENT_USER })
+        $(this).attr('disabled', true)
+        $('#toggle-wordcloud-publications').attr('disabled', false)
+    });
+
+    $("#toggle-wordcloud-publications").click(function () {
+        $('#wordcloud-chart').empty()
+        wordcloud('#wordcloud-chart', { user: CURRENT_USER, type: 'publication' })
+        $(this).attr('disabled', true)
+        $('#toggle-wordcloud-activities').attr('disabled', false)
+    });
+
 });
 
 function conferenceToggle(el, id, type = 'interests') {

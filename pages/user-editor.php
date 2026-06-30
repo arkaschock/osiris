@@ -4,14 +4,14 @@
  * Page to edit user information
  * 
  * This file is part of the OSIRIS package.
- * Copyright (c) 2024 Julia Koblitz, OSIRIS Solutions GmbH
+ * Copyright (c) 2026 Julia Koblitz, OSIRIS Solutions GmbH
  * 
  * @link        /user/edit/<username>
  *
  * @package     OSIRIS
  * @since       1.0.0
  * 
- * @copyright	Copyright (c) 2024 Julia Koblitz, OSIRIS Solutions GmbH
+ * @copyright	Copyright (c) 2026 Julia Koblitz, OSIRIS Solutions GmbH
  * @author		Julia Koblitz <julia.koblitz@osiris-solutions.de>
  * @license     MIT
  */
@@ -628,7 +628,7 @@ $active = function ($field) use ($data_fields) {
                     <?= lang('Add new social', 'Füge soziale Medien hinzu') ?>
                 </button>
                 <div class="dropdown-menu" aria-labelledby="socials-dropdown">
-                    <?php foreach (['researchgate', 'youtube', 'github', 'linkedin', 'mastodon', 'bluesky', 'instagram', 'facebook', 'X', 'website'] as $s) {
+                    <?php foreach (['researchgate', 'youtube', 'github', 'linkedin', 'mastodon', 'bluesky', 'instagram', 'facebook', 'X', 'matrix', 'website'] as $s) {
                         if (array_key_exists($s, $socials)) continue;
                         $logo = socialLogo($s);
                     ?>
@@ -736,11 +736,72 @@ $active = function ($field) use ($data_fields) {
         <h5>
             <?= lang('Transfer the maintenance of your profile', 'Übertrage die Pflege deines Profils') ?>
         </h5>
+        <?php
+        if (is_string($data['maintenance'] ?? null)) $data['maintenance'] = [$data['maintenance']];
+        $maintenance = DB::doc2Arr($data['maintenance'] ?? []);
+        ?>
 
         <div class="form-group mb-0">
-            <label for="maintenance"><?= lang('User', 'Nutzende Person') ?>:</label>
+            <input type="hidden" name="values[maintenance]" value="">
 
-            <!-- <input type="text" list="user-list" name="values[maintenance]" id="maintenance" class="form-control" value="<?= $data['maintenance'] ?? '' ?>"> -->
+            <style>
+                #maintenance-list:empty::before {
+                    content: "<?= lang('This profile is not shared with someone.', 'Dieses Profil wurde mit niemandem geteilt.') ?>";
+                    color: var(--muted-color);
+                    font-style: italic;
+                }
+                #maintenance-list:not(:empty)::before {
+                    content: "<?= lang('This profile was shared with:', 'Dieses Profil wurde geteilt mit:') ?>";
+                }
+            </style>
+            <div class="author-widget">
+                <div class="author-list p-10" id="maintenance-list"><?php
+                        $module_lst = [];
+                        foreach ($maintenance as $u) { 
+                            $mP = $DB->getPerson($u);
+                            ?><div class='author'>
+                            <?= e($mP['displayname']) ?>
+                            <input type='hidden' name='values[maintenance][]' value='<?= e($u) ?>'>
+                            <a onclick='$(this).parent().remove()'>&times;</a>
+                        </div><?php } ?></div>
+                <div class="footer">
+                    <div class="input-group small d-inline-flex w-auto">
+                        <select class="form-control" id="maintenance-select">
+                            <option value="" disabled selected><?= lang("Select a person to share with ...", "Wähle eine Person zum Teilen aus ...") ?></option>
+                            <?php
+                            $all_users = $osiris->persons->find(['is_active' => ['$ne' => false]], ['sort' => ['last' => 1, 'first' => 1]]);
+                            foreach ($all_users as $s) { ?>
+                                <option value="<?= e($s['username']) ?>"><?= e("$s[last], $s[first] ($s[username])") ?></option>
+                            <?php } ?>
+                        </select>
+                        <div class="input-group-append">
+                            <button class="btn small primary" type="button" onclick="addMaintenance();">
+                                <i class="ph ph-plus"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <script>
+                function addMaintenance() {
+                    const selected = $('#maintenance-select option:selected');
+                    const user = selected.val()
+                    const name = selected.html()
+
+                    console.log(user);
+                    if (user.length === 0) return;
+                    // check if already exists
+                    if ($('#maintenance-list').find(`input[value="${user}"]`).length > 0) {
+                        toastError('<?= lang('Person already exists', 'Person existiert bereits') ?>');
+                        return;
+                    }
+                    var html = `<div class='author'>${name} <input type='hidden' name='values[maintenance][]' value='${user}'> <a onclick='$(this).parent().remove()'>&times;</a></div>`;
+                    $('#maintenance-list').append(html);
+                    // add hidden input to form
+                    // $('#keyword-list').append(``);
+                }
+            </script>
+<!-- 
             <select name="values[maintenance]" id="maintenance" class="form-control">
                 <option value="">
                     <?= lang('Profile is not shared with someone', 'Du hast dein Profil an niemanden übertragen') ?>
@@ -752,7 +813,7 @@ $active = function ($field) use ($data_fields) {
                 foreach ($all_users as $s) { ?>
                     <option value="<?= $s['username'] ?>" <?= $selected == $s['username'] ? 'selected' : '' ?>><?= "$s[last], $s[first] ($s[username])" ?></option>
                 <?php } ?>
-            </select>
+            </select> -->
         </div>
 
         <p class=" text-danger">
@@ -771,18 +832,106 @@ $active = function ($field) use ($data_fields) {
             <h2 class="title"><?= lang('Profile preferences', 'Profil-Einstellungen') ?></h2>
 
 
-            <h5><?= lang('Activity display', 'Aktivitäten-Anzeige') ?>:</h5>
+            <h5><?= lang('Sidebar Favourites', 'Seitenleisten-Favoriten') ?></h5>
+
+            <p>
+                <?= lang('You can add your favourite pages to the sidebar for quick access. ', 'Du kannst deine Lieblingsseiten zur Seitenleiste hinzufügen, um schnell darauf zugreifen zu können. ') ?>
+            </p>
+
+            <?php
+            $favs = DB::doc2Arr($data['sidebar_favorites'] ?? []);
+            include_once BASEPATH . '/php/SidebarNav.php';
+            $sidebar = new SidebarNav($Settings);
+            $options = $sidebar->getFavoritableOptions();
+            $options = array_column($options, null, 'id');
+            ?>
+            <!-- save empty favs as well -->
+            <input type="hidden" name="values[sidebar_favorites]" value="">
+            <div class="author-widget">
+                <div class="author-list p-10" id="sidebar_favorites-list">
+                    <?php
+                    $module_lst = [];
+                    foreach ($favs as $fav) {
+                        $label = $options[$fav]['label'] ?? '';
+                    ?>
+                        <div class='author'>
+                            <i class="ph ph-dots-six-vertical text-muted"></i> <?= $label ?>
+                            <input type='hidden' name='values[sidebar_favorites][]' value='<?= $fav ?>'>
+                            <a onclick='$(this).parent().remove()'>&times;</a>
+                        </div>
+                    <?php } ?>
+                </div>
+                <div class="footer">
+                    <div class="input-group small d-inline-flex w-auto">
+                        <select class="form-control" id="sidebar-select">
+                            <option value="" disabled selected><?= lang("Add favorite ...", "Füge Favorit hinzu ...") ?></option>
+                            <?php
+                            foreach ($options as $option) {
+                                $id = $option['id'];
+                            ?>
+                                <option value="<?= $id ?>"><?= $option['label'] ?></option>
+                            <?php } ?>
+                        </select>
+                        <div class="input-group-append">
+                            <button class="btn small primary" type="button" onclick="addSidebarFavorite();">
+                                <i class="ph ph-plus"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <script>
+                function addSidebarFavorite() {
+                    var sidebar = $('#sidebar-select').val();
+                    if (sidebar.length === 0) return;
+                    var label = $('#sidebar-select option:selected').text();
+                    // check if already exists
+                    if ($('#sidebar_favorites-list').find(`input[value="${sidebar}"]`).length > 0) {
+                        toastError('<?= lang('Sidebar favorite already exists', 'Favorit existiert bereits') ?>');
+                        return;
+                    }
+                    var html = `<div class='author'><i class="ph ph-dots-six-vertical text-muted"></i> ${label} <input type='hidden' name='values[sidebar_favorites][]' value='${sidebar}'> <a onclick='$(this).parent().remove()'>&times;</a></div>`;
+                    $('#sidebar_favorites-list').append(html);
+                }
+                $(document).ready(function() {
+                    var sidebardiv = $("#sidebar_favorites-list");
+                    sidebardiv.sortable({});
+                });
+            </script>
+
+
+            <h5>
+                <?= lang('Display of Activities', 'Darstellung der Aktivitäten') ?>
+                <a href="#" onclick="$('#display_activities-info').toggleClass('hidden'); return false;">
+                    <i class="ph ph-info text-muted"></i>
+                </a>
+            </h5>
             <?php
             $display_activities = $data['display_activities'] ?? 'web';
             ?>
+            <p class="hidden" id="display_activities-info">
+                <?= lang('You can choose how activities are displayed for you when you use OSIRIS.', 'Du kannst wählen, wie Aktivitäten für dich dargestellt werden, wenn du OSIRIS nutzt.') ?>
+            </p>
 
-            <div class="custom-radio d-inline-block mr-10">
-                <input type="radio" name="values[display_activities]" id="display_activities-web" value="web" <?= $display_activities == 'web' ? 'checked' : '' ?>>
-                <label for="display_activities-web"><?= lang('Web') ?></label>
+
+            <div class="form-group">
+                <div class="custom-radio">
+                    <input type="radio" name="values[display_activities]" id="display_activities-web" value="web" <?= $display_activities == 'web' ? 'checked' : '' ?>>
+                    <label for="display_activities-web"><?= lang('Web Display', 'Web-Darstellung') ?></label>
+                </div>
+                <small class="text-muted">
+                    <?= lang('Display type optimized for the web.', 'Darstellung, die für das Web optimiert ist.') ?>
+                </small>
             </div>
-            <div class="custom-radio d-inline-block mr-10">
-                <input type="radio" name="values[display_activities]" id="display_activities-print" value="print" <?= $display_activities != 'web' ? 'checked' : '' ?>>
-                <label for="display_activities-print"><?= lang('Print', 'Druck') ?></label>
+            <div class="form-group">
+                <div class="custom-radio">
+                    <input type="radio" name="values[display_activities]" id="display_activities-print" value="print" <?= $display_activities != 'web' ? 'checked' : '' ?>>
+                    <label for="display_activities-print"><?= lang('Print Display', 'Druck-Darstellung') ?></label>
+                </div>
+                <small class="text-muted">
+                    <?= lang('Display type optimized for printing and exporting activities.', 'Darstellung, die für den Druck optimiert ist und für den Export von Aktivitäten verwendet wird.') ?>
+                </small>
             </div>
 
 
@@ -791,11 +940,20 @@ $active = function ($field) use ($data_fields) {
             ?>
 
                 <div class="mt-10">
-                    <h5><?= lang('Coin visibility', 'Sichtbarkeit der Coins') ?>:</h5>
+                    <h5>
+                        <?= lang('Coin visibility', 'Sichtbarkeit der Coins') ?>
+                        <a href="#" onclick="$('#coins-info').toggleClass('hidden'); return false;">
+                            <i class="ph ph-info text-muted"></i>
+                        </a>
+                    </h5>
                     <?php
                     $show_coins = $data['show_coins'] ?? 'none';
                     ?>
 
+                    <p class="hidden" id="coins-info">
+                        <i class="ph ph-coins text-signal"></i>
+                        <?= lang('Coins are a gamification element in OSIRIS and represent points you earn for your activities. You can choose to show them to everyone, only to yourself, or to nobody. If you do not show them to everyone, they won\'t be visible to others, including admins and technical staff.', 'Coins sind ein Gamification-Element in OSIRIS und stellen Punkte dar, die du für deine Aktivitäten erhältst. Du kannst wählen, sie allen, nur dir selbst oder niemandem zu zeigen. Wenn du sie nicht allen zeigst, sind sie für andere, einschließlich Admins und technischem Personal, nicht sichtbar.') ?>
+                    </p>
                     <div class="custom-radio d-inline-block mr-10">
                         <input type="radio" name="values[show_coins]" id="show_coins-true" value="none" <?= $show_coins == 'none' ? 'checked' : '' ?>>
                         <label for="show_coins-true"><?= lang('For nobody', 'Für niemanden') ?></label>
@@ -806,8 +964,9 @@ $active = function ($field) use ($data_fields) {
                     </div>
                     <div class="custom-radio d-inline-block mr-10">
                         <input type="radio" name="values[show_coins]" id="show_coins-all" value="all" <?= $show_coins == 'all' ? 'checked' : '' ?>>
-                        <label for="show_coins-all"><?= lang('For all', 'Für jeden') ?></label>
+                        <label for="show_coins-all"><?= lang('For everyone', 'Für jeden') ?></label>
                     </div>
+
                 </div>
             <?php
             }
@@ -818,18 +977,27 @@ $active = function ($field) use ($data_fields) {
             if ($Settings->featureEnabled('achievements')) {
             ?>
                 <div class="mb-20">
-                    <h5><?= lang('Show achievements', 'Zeige Errungenschaften') ?>:</h5>
+                    <h5>
+                        <?= lang('Achievement visibility', 'Sichtbarkeit der Achievements') ?>
+                        <a href="#" onclick="$('#achievements-info').toggleClass('hidden'); return false;">
+                            <i class="ph ph-info text-muted"></i>
+                        </a>
+                    </h5>
                     <?php
                     $hide_achievements = $data['hide_achievements'] ?? false;
                     ?>
+                    <p class="hidden" id="achievements-info">
+                        <i class="ph ph-trophy text-signal"></i>
+                        <?= lang('Achievements are a gamification element in OSIRIS and represent badges you earn for your activities. You can choose to hide them from everyone or show them to everyone. If you hide them, they won\'t be visible to others, including admins and technical staff.', 'Achievements sind ein Gamification-Element in OSIRIS und stellen Abzeichen dar, die du für deine Aktivitäten erhältst. Du kannst wählen, sie vor allen zu verstecken oder allen zu zeigen. Wenn du sie versteckst, sind sie für andere, einschließlich Admins und technischem Personal, nicht sichtbar.') ?>
+                    </p>
 
                     <div class="custom-radio d-inline-block mr-10">
-                        <input type="radio" name="values[hide_achievements]" id="hide_achievements-false" value="false" <?= $hide_achievements ? '' : 'checked' ?>>
-                        <label for="hide_achievements-false"><?= lang('Yes', 'Ja') ?></label>
+                        <input type="radio" name="values[hide_achievements]" id="hide_achievements-true" value="true" <?= $hide_achievements ? 'checked' : '' ?>>
+                        <label for="hide_achievements-true"><?= lang('For nobody', 'Für niemanden') ?></label>
                     </div>
                     <div class="custom-radio d-inline-block mr-10">
-                        <input type="radio" name="values[hide_achievements]" id="hide_achievements-true" value="true" <?= $hide_achievements ? 'checked' : '' ?>>
-                        <label for="hide_achievements-true"><?= lang('No', 'Nein') ?></label>
+                        <input type="radio" name="values[hide_achievements]" id="hide_achievements-false" value="false" <?= $hide_achievements ? '' : 'checked' ?>>
+                        <label for="hide_achievements-false"><?= lang('For everyone', 'Für jeden') ?></label>
                     </div>
                 </div>
             <?php
@@ -881,7 +1049,7 @@ $active = function ($field) use ($data_fields) {
                             <?php } ?>
                         </select>
                         <div class="input-group-append">
-                            <button class="btn secondary h-full" type="button" onclick="addKeyword();">
+                            <button class="btn small primary" type="button" onclick="addKeyword();">
                                 <i class="ph ph-plus"></i>
                             </button>
                         </div>
@@ -967,7 +1135,7 @@ $active = function ($field) use ($data_fields) {
             <!-- ensure to save empty research interests -->
             <input type="hidden" name="values[research]" value="">
             <small class="text-muted">Max. 5</small><br>
-            <table class="table simple">
+            <table class="table">
                 <thead>
                     <tr>
                         <th><label for="research" class="d-flex">English <img src="<?= ROOTPATH ?>/img/gb.svg" alt="EN" class="flag"></label></th>
@@ -1060,24 +1228,37 @@ $active = function ($field) use ($data_fields) {
             <br>
             <small class="text-muted float-right"><?= lang('Sorting will be done automatically', 'Wir sortieren das automatisch für dich') ?></small>
             <br>
-            <div id="cv-list">
+            <div id="cv-list" class="w-800 mw-full">
                 <?php
                 if (isset($data['cv']) && !empty($data['cv'])) {
 
-                    foreach ($data['cv'] as $i => $con) { ?>
+                    foreach ($data['cv'] as $i => $con) {
+                        // try to fix dates saved in old format (array instead of string with month and year)
+                        // if (!isset($con['from']) || is_null($con['from']['year'] ?? 'not set')) {
+                        //     $con['from'] = '';
+                        // }
+                        // if (!is_string($con['from'] ?? null) && isset($con['from']['year'])) {
+                        //     $con['from'] = ($con['from']['year'] ?? '') . '-' . str_pad(($con['from']['month'] ?? ''), 2, '0', STR_PAD_LEFT);
+                        // }
+                        // if (!isset($con['to']) || is_null($con['to']['year'] ?? 'not set')) {
+                        //     $con['to'] = '';
+                        // }
+                        // if (!is_string($con['to'] ?? null) && isset($con['to']['year'])) {
+                        //     $con['to'] = ($con['to']['year'] ?? '') . '-' . str_pad(($con['to']['month'] ?? ''), 2, '0', STR_PAD_LEFT);
+                        // }
+
+                ?>
 
                         <div class="alert mb-10">
                             <div class="input-group my-10">
                                 <div class="input-group-prepend">
-                                    <span class="input-group-text"><?= lang('From', 'Von') ?></span>
+                                    <span class="input-group-text"><?= lang('From', 'Von') ?>*</span>
                                 </div>
-                                <input type="number" name="values[cv][<?= $i ?>][from][month]" value="<?= $con['from']['month'] ?? '' ?>" class="form-control" placeholder="month *" min="1" max="12" step="1" id="from-month" required>
-                                <input type="number" name="values[cv][<?= $i ?>][from][year]" value="<?= $con['from']['year'] ?? '' ?>" class="form-control" placeholder="year *" min="1900" max="<?= CURRENTYEAR ?>" step="1" id="from-year" required>
+                                <input type="month" name="values[cv][<?= $i ?>][from]" id="from-<?= $i ?>" value="<?= $con['from'] ?? '' ?>" class="form-control month-field" placeholder="month *" required>
                                 <div class="input-group-prepend">
                                     <span class="input-group-text"><?= lang('to', 'bis') ?></span>
                                 </div>
-                                <input type="number" name="values[cv][<?= $i ?>][to][month]" value="<?= $con['to']['month'] ?? '' ?>" class="form-control" placeholder="month" min="1" max="12" step="1" id="to-month">
-                                <input type="number" name="values[cv][<?= $i ?>][to][year]" value="<?= $con['to']['year'] ?? '' ?>" class="form-control" placeholder="year" min="1900" step="1" id="to-year">
+                                <input type="month" name="values[cv][<?= $i ?>][to]" id="to-<?= $i ?>" value="<?= $con['to'] ?? '' ?>" class="form-control month-field" placeholder="month">
                             </div>
 
                             <div class="form-group mb-10">
@@ -1107,7 +1288,7 @@ $active = function ($field) use ($data_fields) {
             </div>
 
             <script>
-                var i = <?= $i ?? 0 ?>
+                var i = <?= $i ?? 0 ?>;
 
                 var CURRENTYEAR = <?= CURRENTYEAR ?>;
 
@@ -1117,15 +1298,13 @@ $active = function ($field) use ($data_fields) {
             <div class="alert mb-10">
                     <div class="input-group my-10">
                         <div class="input-group-prepend">
-                            <span class="input-group-text">${lang('From', 'Von')}</span>
+                            <span class="input-group-text">${lang('From', 'Von')}*</span>
                         </div>
-                        <input type="number" name="values[cv][${i}][from][month]" class="form-control" placeholder="month *" min="1" max="12" step="1" id="from-month" required>
-                        <input type="number" name="values[cv][${i}][from][year]" class="form-control" placeholder="year *" min="1900" max="${CURRENTYEAR}" step="1" id="from-year" required>
+                        <input type="month" name="values[cv][${i}][from]" class="form-control" placeholder="month *" required>
                         <div class="input-group-prepend">
                             <span class="input-group-text">${lang('to', 'bis')}</span>
                         </div>
-                        <input type="number" name="values[cv][${i}][to][month]" class="form-control" placeholder="month" min="1" max="12" step="1" id="to-month">
-                        <input type="number" name="values[cv][${i}][to][year]" class="form-control" placeholder="year" min="1900" step="1" id="to-year">
+                        <input type="month" name="values[cv][${i}][to]" class="form-control" placeholder="month">
                     </div>
 
                     <div class="form-group mb-10">
@@ -1136,13 +1315,49 @@ $active = function ($field) use ($data_fields) {
                         <input name="values[cv][${i}][affiliation]" type="text" class="form-control" placeholder="Affiliation *" list="affiliation-list" required>
                     </div>
 
-                    <small class="text-muted">* required</small><br>
+                    <small class="text-muted">* <?= lang('required', 'benötigt') ?></small><br>
 
                     <button class="btn danger my-10" type="button" onclick="$(this).closest('.alert').remove()"><i class="ph ph-trash"></i></button>
                 </div>
                 `;
                     $(parent).prepend(el);
                 }
+
+                function validateFeedback(item = null, pass = false) {
+                    if (item !== null) {
+                        $(item).toggleClass('is-invalid', !pass);
+                    }
+                    $('.btn[type="submit"]').prop('disabled', !pass);
+                }
+
+                // when month field is blurred, check if month is correctly formatted, if not, try to fix it, otherwise give an error
+                $(document).on('blur', '.month-field', function() {
+                    var val = $(this).val();
+                    if (val.length == 0) {
+                        validateFeedback(this, true);
+                        return;
+                    }
+                    // check if value is in format YYYY-MM
+                    if (!/^\d{4}-\d{2}$/.test(val)) {
+                        // try to fix common mistakes like YYYY/MM or MM/YYYY
+                        var fixed = val.replace('/', '-');
+                        if (/^\d{4}-\d{2}$/.test(fixed)) {
+                            validateFeedback(this, true);
+                            $(this).val(fixed);
+                            return;
+                        }
+                        fixed = val.replace('/', '-').split('-').reverse().join('-');
+                        if (/^\d{4}-\d{2}$/.test(fixed)) {
+                            validateFeedback(this, true);
+                            $(this).val(fixed);
+                            return;
+                        }
+                        validateFeedback(this, false);
+                        toastError('<?= lang('Please enter a valid month in the format YYYY-MM', 'Bitte gib einen gültigen Monat im Format JJJJ-MM ein') ?>');
+                    } else {
+                        validateFeedback(this, true);
+                    }
+                });
             </script>
 
 

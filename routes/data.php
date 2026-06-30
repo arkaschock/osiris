@@ -4,12 +4,12 @@
  * Routing file for data requests, modules and components
  * 
  * This file is part of the OSIRIS package.
- * Copyright (c) 2024 Julia Koblitz, OSIRIS Solutions GmbH
+ * Copyright (c) 2026 Julia Koblitz, OSIRIS Solutions GmbH
  *
  * @package     OSIRIS
  * @since       1.4.1
  * 
- * @copyright	Copyright (c) 2024 Julia Koblitz, OSIRIS Solutions GmbH
+ * @copyright	Copyright (c) 2026 Julia Koblitz, OSIRIS Solutions GmbH
  * @author		Julia Koblitz <julia.koblitz@osiris-solutions.de>
  * @license     MIT
  */
@@ -205,3 +205,11 @@ Route::get('/components/([A-Za-z0-9\-]*)', function ($path) {
     include_once BASEPATH . "/php/init.php";
     include BASEPATH . "/components/$path.php";
 });
+
+Route::get('/activity-fields', function () {
+    include_once BASEPATH . "/php/init.php";
+    include_once BASEPATH . "/php/activity_fields.php";
+    $FIELDS = new ActivityFields();
+    JSON::ok(["fields" => $FIELDS->fields]);
+});
+

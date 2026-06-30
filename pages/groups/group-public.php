@@ -4,14 +4,14 @@
  * Page to edit external view on group
  * 
  * This file is part of the OSIRIS package.
- * Copyright (c) 2024 Julia Koblitz, OSIRIS Solutions GmbH
+ * Copyright (c) 2026 Julia Koblitz, OSIRIS Solutions GmbH
  * 
  * @link        /groups/public/:name
  *
  * @package     OSIRIS
  * @since       1.3.5
  * 
- * @copyright	Copyright (c) 2024 Julia Koblitz, OSIRIS Solutions GmbH
+ * @copyright	Copyright (c) 2026 Julia Koblitz, OSIRIS Solutions GmbH
  * @author		Julia Koblitz <julia.koblitz@osiris-solutions.de>
  * @license     MIT
  */
@@ -266,7 +266,7 @@ function sel($index, $value)
                 }
                 data.data.forEach(function(d) {
                     suggest.append(
-                        `<a onclick="selectActivity(this)" data-id="${d.id.toString()}">${d.details.icon} ${d.details.plain}</a>`
+                        `<a  data-id="${d.id.toString()}">${d.details.icon} ${d.details.plain}</a>`
                     )
                 })
                 suggest.find('a')

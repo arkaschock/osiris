@@ -4,14 +4,14 @@
  * Page to download activities
  * 
  * This file is part of the OSIRIS package.
- * Copyright (c) 2024 Julia Koblitz, OSIRIS Solutions GmbH
+ * Copyright (c) 2026 Julia Koblitz, OSIRIS Solutions GmbH
  * 
  * @link        /download
  *
  * @package     OSIRIS
  * @since       1.0.0
  * 
- * @copyright	Copyright (c) 2024 Julia Koblitz, OSIRIS Solutions GmbH
+ * @copyright	Copyright (c) 2026 Julia Koblitz, OSIRIS Solutions GmbH
  * @author		Julia Koblitz <julia.koblitz@osiris-solutions.de>
  * @license     MIT
  */
@@ -122,12 +122,12 @@
                     <span class="input-group-text"><?= lang('From', 'Von') ?></span>
                 </div>
                 <input type="number" name="filter[time][from][month]" class="form-control" placeholder="month" min="1" max="12" step="1" id="from-month" onchange="filtertime()">
-                <input type="number" name="filter[time][from][year]" class="form-control" placeholder="year" min="<?= $Settings->get('startyear') ?>" max="<?= CURRENTYEAR ?>" step="1" id="from-year" onchange="filtertime()">
+                <input type="number" name="filter[time][from][year]" class="form-control" placeholder="year" min="1900" max="<?= CURRENTYEAR+1 ?>" step="1" id="from-year" onchange="filtertime()">
                 <div class="input-group-prepend">
                     <span class="input-group-text"><?= lang('to', 'bis') ?></span>
                 </div>
                 <input type="number" name="filter[time][to][month]" class="form-control" placeholder="month" min="1" max="12" step="1" id="to-month" onchange="filtertime()">
-                <input type="number" name="filter[time][to][year]" class="form-control" placeholder="year" min="<?= $Settings->get('startyear') ?>" max="<?= CURRENTYEAR ?>" step="1" id="to-year" onchange="filtertime()">
+                <input type="number" name="filter[time][to][year]" class="form-control" placeholder="year" min="1900" max="<?= CURRENTYEAR+1 ?>" step="1" id="to-year" onchange="filtertime()">
 
                 <div class="input-group-append">
                     <button class="btn" type="button" onclick="filtertime(true)">&times;</button>
@@ -182,10 +182,15 @@
                 <input type="radio" name="format" id="format-word" value="word" checked="checked">
                 <label for="format-word">Word</label>
             </div>
+            
+            <div class="custom-radio d-inline-block ml-10">
+                <input type="radio" name="format" id="format-html" value="html" checked="checked">
+                <label for="format-html">HTML</label>
+            </div>
 
             <div class="custom-radio d-inline-block ml-10">
                 <input type="radio" name="format" id="format-bibtex" value="bibtex">
-                <label for="format-bibtex">BibTex</label>
+                <label for="format-bibtex">BibTeX</label>
             </div>
 
         </div>
@@ -218,15 +223,15 @@
             fromMonth = 1
         }
         var fromYear = $("#from-year").val()
-        if (fromYear.length == 0 || parseInt(fromYear) < <?= $Settings->get('startyear') ?> || parseInt(fromYear) > today.getFullYear()) {
-            fromYear = <?= $Settings->get('startyear') ?>
+        if (fromYear.length == 0 || parseInt(fromYear) < 1900 || parseInt(fromYear) > today.getFullYear()) {
+            fromYear = 1900
         }
         var toMonth = $("#to-month").val()
         if (toMonth.length == 0 || parseInt(toMonth) < 1 || parseInt(toMonth) > 12) {
             toMonth = 12
         }
         var toYear = $("#to-year").val()
-        if (toYear.length == 0 || parseInt(toYear) < <?= $Settings->get('startyear') ?> || parseInt(toYear) > today.getFullYear()) {
+        if (toYear.length == 0 || parseInt(toYear) < 1900 || parseInt(toYear) > today.getFullYear()) {
             toYear = today.getFullYear()
         }
         // take care that from is not larger than to

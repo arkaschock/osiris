@@ -4,12 +4,12 @@
  * Routing for the API used for OSIRIS internal dashboards
  * 
  * This file is part of the OSIRIS package.
- * Copyright (c) 2024 Julia Koblitz, OSIRIS Solutions GmbH
+ * Copyright (c) 2026 Julia Koblitz, OSIRIS Solutions GmbH
  *
  * @package     OSIRIS
  * @since       1.0.0
  * 
- * @copyright	Copyright (c) 2024 Julia Koblitz, OSIRIS Solutions GmbH
+ * @copyright	Copyright (c) 2026 Julia Koblitz, OSIRIS Solutions GmbH
  * @author		Julia Koblitz <julia.koblitz@osiris-solutions.de>
  * @license     MIT
  */
@@ -44,8 +44,7 @@ Route::get('/api/dashboard/timeline', function () {
 
     $result = [
         'info' => $typeInfo,
-        'events' => [],
-        'types' => []
+        'events' => []
     ];
 
     $events = $osiris->activities->find(
@@ -69,6 +68,12 @@ Route::get('/api/dashboard/timeline', function () {
     }
 
     $result['events'] = $events;
+
+    if (!empty($events)) {
+        $types = array_column($events, 'type');
+        $types = array_unique($types);
+        $result['types'] = array_values($types);
+    }
 
     if (!empty($events)) {
         $types = array_column($events, 'type');
@@ -135,6 +140,153 @@ Route::get('/api/dashboard/event-timeline', function () {
     echo return_rest($result, count($events));
 });
 
+Route::get('/api/dashboard/deadline-timeline', function () {
+    error_reporting(E_ERROR | E_PARSE);
+    include(BASEPATH . '/php/init.php');
+
+    $filter = ['year' => CURRENTYEAR];
+    if (isset($_GET['filter'])) {
+        $filter = $_GET['filter'];
+    } elseif (isset($_GET['json'])) {
+        $filter = json_decode($_GET['json'], true);
+    } elseif ($_GET['year'] ?? null) {
+        $filter['year'] = intval($_GET['year']);
+    } else {
+        $filter['year'] = ['$gte' => $Settings->get('startyear')];
+    }
+
+    $roles = $Settings->roles;
+    $filter['$or'] = [
+        ['roles' => ['$in' => $roles]],
+        ['created_by' => $_SESSION['username']]
+    ];
+
+    $result = [
+        'info' => [],
+        'events' => [],
+        'types' => []
+    ];
+
+    $events = $osiris->deadlines->find(
+        $filter,
+        [
+            'sort' => ['date' => 1],
+            'projection' => [
+                'title' => '$title',
+                'date_time' => '$date',
+                'type' => 1,
+                'id' => ['$toString' => '$_id']
+            ]
+        ]
+    )->toArray();
+
+    // Convert ISO date string to timestamp in PHP if needed
+    foreach ($events as &$event) {
+        if (!empty($event['date_time'])) {
+            $event['starting_time'] = strtotime($event['date_time']);
+        }
+    }
+
+    $result['events'] = $events;
+
+    if (!empty($events)) {
+        $types = array_column($events, 'type');
+        $types = array_unique($types);
+        $result['types'] = array_values($types);
+    }
+
+    echo return_rest($result, count($events));
+});
+
+
+Route::get('/api/dashboard/upcoming-events', function () {
+    error_reporting(E_ERROR | E_PARSE);
+    include BASEPATH . '/php/init.php';
+    include_once BASEPATH . '/php/Vocabulary.php';
+    $Vocabulary = new Vocabulary();
+
+    $result = [
+        'info' => [],
+        'events' => [],
+        'types' => []
+    ];
+
+    // first get all events that are upcoming or have ended in the last 3 days
+    $events = $osiris->conferences->find(
+        [
+            'end' => ['$gte' => date('Y-m-d', strtotime('today'))],
+            'start' => ['$lte' => date('Y-m-d', strtotime('+6 month'))],
+            'dismissed' => ['$ne' => $_SESSION['username']]
+        ],
+        [
+            'sort' => ['start' => 1, 'end' => 1],
+            'projection' => [
+                '_id' => 0,
+                'title' => '$title',
+                'start_date' => '$start',
+                'end_date' => '$end',
+                'type' => 1,
+                'id' => ['$toString' => '$_id'],
+                'category' => 'event'
+            ]
+        ]
+    )->toArray();
+
+    // Convert ISO date string to timestamp in PHP if needed
+    foreach ($events as &$event) {
+        if (!empty($event['start_date'])) {
+            $event['starting_time'] = strtotime($event['start_date']);
+        }
+        if (!empty($event['end_date'])) {
+            $event['ending_time'] = strtotime($event['end_date']);
+        }
+        unset($event['start_date'], $event['end_date']);
+    }
+
+    if ($Settings->featureEnabled('deadlines')) {
+        $deadlines = $osiris->deadlines->find(
+            [
+                '$and' => [
+                    ['date' => ['$gte' => date('Y-m-d', strtotime('today'))]],
+                    ['date' => ['$lte' => date('Y-m-d', strtotime('+6 month'))]]
+                ],
+                'roles' => ['$in' => $Settings->roles]
+            ],
+            ['sort' => ['date' => 1], 'projection' => [
+                '_id' => 0,
+                'id' => ['$toString' => '$_id'],
+                'date' => 1,
+                'type' => 1,
+                'title' => 1,
+                'category' => 'deadline'
+            ]]
+        )->toArray();
+
+        // Convert ISO date string to timestamp in PHP if needed
+        foreach ($deadlines as &$deadline) {
+            if (!empty($deadline['date'])) {
+                $deadline['starting_time'] = strtotime($deadline['date']);
+            }
+            unset($deadline['date']);
+        }
+        $events = array_merge($events, $deadlines);
+    }
+
+    $result['events'] = $events;
+
+    if (!empty($events)) {
+        $types = array_column($events, 'type');
+        $types = array_unique($types);
+        $result['types'] = array_values($types);
+    }
+    foreach (['event', 'deadline'] as $category) {
+        $types = $Vocabulary->getValues($category . '-type');
+        $types = array_column($types, null, 'id');
+        $result['info'][$category] = $types;
+    }
+
+    echo return_rest($result, count($events));
+});
 
 Route::get('/api/dashboard/oa-status', function () {
     error_reporting(E_ERROR | E_PARSE);
@@ -250,6 +402,7 @@ Route::get('/api/dashboard/collaborators', function () {
         }
     } else {
         $filter = ['collaborators' => ['$exists' => 1]];
+        // only for portal
         if (isset($_GET['dept'])) {
             // only for portal
             $dept = $_GET['dept'];
@@ -266,18 +419,53 @@ Route::get('/api/dashboard/collaborators', function () {
         }
         $result = $osiris->projects->aggregate([
             ['$match' => $filter],
-            ['$project' => ['collaborators' => 1]],
+            ['$project' => ['collaborators' => 1, 'public' => 1]],
             ['$unwind' => '$collaborators'],
             [
                 '$group' => [
-                    '_id' => '$collaborators.name',
+                    '_id' => '$collaborators.organization',
                     'count' => ['$sum' => 1],
+                    'public_count' => [
+                        '$sum' => [
+                            '$cond' => [
+                                'if' => ['$eq' => ['$public', true]],
+                                'then' => 1,
+                                'else' => 0
+                            ]
+                        ]
+                    ],
                     'data' => [
                         '$first' => '$collaborators'
                     ]
                 ]
             ],
+            ['$lookup' => [
+                'from' => 'organizations',
+                'localField' => '_id',
+                'foreignField' => '_id',
+                'as' => 'org'
+            ]],
+            ['$unwind' => '$org'],
+            ['$project' => [
+                '_id' => 1,
+                'count' => 1,
+                'public_count' => 1,
+                'data.name' => '$org.name',
+                'data.type' => '$org.type',
+                'data.location' => '$org.location',
+                'data.country' => '$org.country',
+                'data.ror' => '$org.ror',
+                'data.lat' => '$org.lat',
+                'data.lng' => '$org.lng'
+            ]],
+            ['$sort' => ['count' => -1]]
+
         ])->toArray();
+
+        // set all roles to 'partner'
+        foreach ($result as $r) {
+            $r['data']['role'] = 'partner';
+        }
 
         $institute = $Settings->get('affiliation_details');
         if (isset($institute['lat']) && isset($institute['lng'])) {
@@ -290,9 +478,32 @@ Route::get('/api/dashboard/collaborators', function () {
         }
     }
 
+    echo return_rest($result, count($result));
+});
 
 
 
+Route::get('/api/dashboard/organizations', function () {
+    error_reporting(E_ERROR | E_PARSE);
+    include(BASEPATH . '/php/init.php');
+
+    if (!apikey_check($_GET['apikey'] ?? null)) {
+        echo return_permission_denied();
+        die;
+    }
+    $filter = ['lat' => ['$exists' => 1], 'lng' => ['$exists' => 1]];
+
+    $result = $osiris->organizations->find($filter)->toArray();
+
+    $institute = $Settings->get('affiliation_details');
+    if (isset($institute['lat']) && isset($institute['lng'])) {
+        $result[] = [
+            '_id' => $institute['ror'] ?? '',
+            'count' => 3,
+            'data' => $institute,
+            'color' => '#f78104'
+        ];
+    }
     echo return_rest($result, count($result));
 });
 
@@ -331,13 +542,13 @@ Route::get('/api/dashboard/author-role', function () {
             ['$project' => ['_id' => 0, 'x' => '$_id', 'y' => '$count']],
         ])->toArray();
 
-        $editorials = $osiris->activities->count(['editors.user' => $user]);
+        $editorials = $osiris->activities->count(['editors.user' => $user, 'type' => 'publication']);
         if ($editorials !== 0)
             $data[] = [
                 'x' => 'editor',
                 'y' => $editorials
             ];
-        $supervisorships = $osiris->activities->count(['supervisors.user' => $user]);
+        $supervisorships = $osiris->activities->count(['supervisors.user' => $user, 'type' => 'publication']);
         if ($supervisorships !== 0)
             $data[] = [
                 'x' => 'supervisor',
@@ -567,7 +778,10 @@ Route::get('/api/dashboard/wordcloud', function () {
         return $ret;
     }
 
-    $filter = ['type' => 'publication'];
+    $filter = [];
+    if (isset($_GET['type'])) {
+        $filter['type'] = $_GET['type'];
+    }
     if (isset($_GET['user'])) {
         $filter['rendered.users'] = $_GET['user'];
     } else if (isset($_GET['units'])) {
@@ -845,7 +1059,7 @@ Route::get('/api/dashboard/department-network', function () {
     // --- Matrix init ---
     $n = count($labels);
     $matrix = array_fill(0, $n, array_fill(0, $n, 0));
-    
+
 
     // Build index map
     $indexById = [];
@@ -890,7 +1104,7 @@ Route::get('/api/dashboard/author-network', function () {
         die;
     }
 
-    $scientist = $_GET['user'] ?? '';
+    $scientist = $_GET['user'] ?? $_SESSION['username'] ?? '';
     $selectedUser = $osiris->persons->findone(['username' => $scientist]);
     $userUnits = array_column(DB::doc2Arr($selectedUser['units']), 'unit');
     // generate graph json
@@ -915,6 +1129,8 @@ Route::get('/api/dashboard/author-network', function () {
 
     if (isset($_GET['year'])) {
         $filter['year'] = $_GET['year'];
+    } else if (isset($_GET['all']) && $_GET['all'] == 'true') {
+        // no year filter
     } else {
         // past 5 years is default
         $filter['year'] = ['$gte' => CURRENTYEAR - 4];
@@ -1019,36 +1235,55 @@ Route::get('/api/dashboard/author-network', function () {
 });
 
 
-Route::get('/api/dashboard/activity-authors', function () {
+Route::get('/api/dashboard/activity-(contributors|authors|editors|supervisors)', function ($type) {
     error_reporting(E_ERROR | E_PARSE);
     include(BASEPATH . '/php/init.php');
 
-    if (!apikey_check($_GET['apikey'] ?? null)) {
-        echo return_permission_denied();
-        die;
-    }
+    // if (!apikey_check($_GET['apikey'] ?? null)) {
+    //     echo return_permission_denied();
+    //     die;
+    // }
 
     if (!isset($_GET['activity'])) return [];
 
     $lvl = 1;
-
     // select activities from database
     $filter = ['_id' => DB::to_ObjectID($_GET['activity'])];
     $doc = $osiris->activities->findOne($filter);
 
     $depts = [];
     $multi = false;
-    if (isset($doc['authors']) && !empty($doc['authors'])) {
-        // $users = array_column(DB::doc2Arr($doc['authors']), 'user');
-        foreach ($doc['authors'] as $a) {
+
+    $contributors = [];
+    switch ($type) {
+        case 'contributors':
+            foreach (['authors', 'editors', 'supervisors'] as $role) {
+                $contributors = array_merge($contributors, DB::doc2Arr($doc[$role] ?? []));
+            }
+            break;
+        case 'authors':
+            $contributors = DB::doc2Arr($doc['authors'] ?? []);
+            break;
+        case 'editors':
+            $contributors = DB::doc2Arr($doc['editors'] ?? []);
+            break;
+        case 'supervisors':
+            $contributors = DB::doc2Arr($doc['supervisors'] ?? []);
+            break;
+    }
+
+    if (!empty($contributors)) {
+        // $users = array_column(DB::doc2Arr($contributors), 'user');
+        foreach ($contributors as $i => $a) {
             $user = $a['user'] ?? null;
-            $name = Document::abbreviateAuthor($a['last'], $a['first'] ?? null);
             if (!($a['aoi'] ?? false)) {
-                $depts['external'][] = $name;
+                if (!isset($depts['external'])) $depts['external'] = 0;
+                $depts['external'] += 1;
                 continue;
             }
-            if (empty($user)) {
-                $depts['unknown'][] = $name;
+            if (empty($a['units'])) {
+                if (!isset($depts['unknown'])) $depts['unknown'] = 0;
+                $depts['unknown'] += 1;
                 continue;
             }
 
@@ -1062,15 +1297,13 @@ Route::get('/api/dashboard/activity-authors', function () {
             }
             $d = array_unique($d);
             if (count($d) == 0) {
-                $depts['unknown'][] = $name;
+                if (!isset($depts['unknown'])) $depts['unknown'] = 0;
+                $depts['unknown'] += 1;
                 continue;
-            } elseif (count($d) > 1) {
-                $name .= '*';
-                $multi = true;
             }
             foreach ($d as $unit) {
-                if (!isset($depts[$unit])) $depts[$unit] = [];
-                if (!in_array($name, $depts[$unit])) $depts[$unit][] = $name;
+                if (!isset($depts[$unit])) $depts[$unit] = 0;
+                $depts[$unit] += 1;
             }
         }
     }
@@ -1078,27 +1311,24 @@ Route::get('/api/dashboard/activity-authors', function () {
     $labels = [];
     $y = [];
     $colors = [];
-    $persons = [];
     foreach ($depts as $key => $value) {
-        if ($key == 'external') {
-            $labels[] = 'External partners';
-            $colors[] = '#00000095';
-        } elseif ($key == 'unknown') {
-            $labels[] = 'Unknown unit';
+        if ($key == 'external' && $value > 0) {
+            $labels[] = lang('External partners', 'Externe Personen');
+            $colors[] = '#ececec95';
+        } elseif ($key == 'unknown' && $value > 0) {
+            $labels[] = lang('Unknown unit', 'Unbekannte Einheit');
             $colors[] = '#cccccc95';
         } else {
             $group = $Groups->getGroup($key);
-            $labels[] = $group['name'];
-            $colors[] = $group['color'] . '95';
+            $labels[] = lang($group['name'], $group['name_de'] ?? null);
+            $colors[] = $group['color'] . 'aa';
         }
-        $y[] = count($value);
-        $persons[] = $value;
+        $y[] = $value;
     }
     echo return_rest([
         'y' => $y,
         'colors' => $colors,
         'labels' => $labels,
-        'persons' => $persons,
         'multi' => $multi
     ], count($labels));
 });
@@ -1209,7 +1439,7 @@ Route::get('/api/dashboard/department-graph', function () {
     ], count($nodes));
 });
 
-Route::get('/api/dashboard/concept-search', function () {
+Route::get('/api/dashboard/spectrum-search', function () {
     error_reporting(E_ERROR | E_PARSE);
     include(BASEPATH . '/php/init.php');
 
@@ -1218,26 +1448,26 @@ Route::get('/api/dashboard/concept-search', function () {
         die;
     }
 
-    if (!isset($_GET['concept'])) return return_rest([], 0);
-    $name = $_GET['concept'];
+    if (!isset($_GET['spectrum'])) return return_rest([], 0);
+    $name = $_GET['spectrum'];
     $active_users = $osiris->persons->distinct('username', ['is_active' => ['$ne' => false]]);
-    $concepts = $osiris->activities->aggregate(
+    $spectrum = $osiris->activities->aggregate(
         [
-            ['$match' => ['concepts.display_name' => $name]],
-            ['$project' => ['authors' => 1, 'concepts' => 1]],
-            ['$unwind' => '$concepts'],
-            ['$match' => ['concepts.display_name' => $name]],
+            ['$match' => ['spectrum.display_name' => $name]],
+            ['$project' => ['authors' => 1, 'spectrum' => 1]],
+            ['$unwind' => '$spectrum'],
+            ['$match' => ['spectrum.display_name' => $name]],
             ['$unwind' => '$authors'],
             ['$match' => ['authors.user' => ['$in' => $active_users]]],
             [
                 '$group' => [
                     '_id' => '$authors.user',
                     'total' => ['$sum' => 1],
-                    'totalScore' => ['$sum' => '$concepts.score'],
+                    'totalScore' => ['$sum' => '$spectrum.score'],
                     'author' => ['$first' => '$authors']
                 ]
             ],
-            // ['$project' => ['score' => ['$divide' =>], 'concepts' => 1]],
+            // ['$project' => ['score' => ['$divide' =>], 'spectrum' => 1]],
             ['$match' => ['totalScore' => ['$gte' => 1]]],
             ['$sort' => ['author.last' => 1]],
         ]
@@ -1256,7 +1486,7 @@ Route::get('/api/dashboard/concept-search', function () {
         'text' => [],
         'hovertemplate' => '%{x}<br>%{y}<br> Total Score: %{text}'
     ];
-    foreach ($concepts as $i => $c) {
+    foreach ($spectrum as $i => $c) {
         // $author = Document::abbreviateAuthor($c['author']['last'], $c['author']['first'], true, ' ');
         $author = $DB->getNameFromId($c['_id'], true, true);
         // $data[] = [
@@ -1294,13 +1524,26 @@ Route::get('/api/activities-suggest/(.*)', function ($term) {
     error_reporting(E_ERROR | E_PARSE);
     include_once BASEPATH . "/php/init.php";
 
-    // if (!apikey_check($_GET['apikey'] ?? null)) {
-    //     echo return_permission_denied();
-    //     die;
-    // }
+    if (!apikey_check($_GET['apikey'] ?? null)) {
+        echo return_permission_denied();
+        die;
+    }
 
     $filter = ['$text' => ['$search' => $term]];
+    $options = [
+        'projection' => ['score' => ['$meta' => 'textScore'], 'details' => '$rendered', 'id' => ['$toString' => '$_id']],
+        'sort' => ['score' => ['$meta' => 'textScore']],
+        'limit' => 10
+    ];
 
+    // check if term contains a DOI
+    if (preg_match('/(10.\d{4,9}\/[-._;()\/:A-Z0-9]+)/i', $term, $matches)) {
+        $doi = $matches[0];
+        $filter = ['doi' => $doi];
+        $options = [
+            'projection' => ['details' => '$rendered', 'id' => ['$toString' => '$_id']],
+        ];
+    }
     // exclude project id
     if (isset($_GET['exclude-project'])) {
         $exclude = DB::to_ObjectID($_GET['exclude-project']);
@@ -1314,15 +1557,9 @@ Route::get('/api/activities-suggest/(.*)', function ($term) {
         $filter['units'] = ['$in' => explode(',', $_GET['unit'])];
     }
 
-    // $osiris->activities->createIndex(['rendered.plain' => 'text']);
-
     $result = $osiris->activities->find(
         $filter,
-        [
-            'projection' => ['score' => ['$meta' => 'textScore'], 'details' => '$rendered', 'id' => ['$toString' => '$_id']],
-            'sort' => ['score' => ['$meta' => 'textScore']],
-            'limit' => 10
-        ]
+        $options
     )->toArray();
 
 
@@ -1496,4 +1733,687 @@ Route::get('/api/pivot-data', function () {
         ['projection' => $projection]
     )->toArray();
     echo return_rest($data, count($data));
+});
+
+
+/**
+ * Static command palette endpoint for frontend
+ */
+Route::get('/api/command-palette', function () {
+    error_reporting(E_ERROR | E_PARSE);
+    include(BASEPATH . '/php/init.php');
+    require_once BASEPATH . "/php/CommandPalette.php";
+    $Palette = new CommandPalette($Settings);
+
+    header('Content-Type: application/json; charset=utf-8');
+
+    // Static navigation items from json
+    $result = $Palette->get();
+
+    echo json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+});
+
+
+/**
+ * Search endpoint for command palette
+ */
+Route::get('/api/command-palette/search', function () {
+    error_reporting(E_ERROR | E_PARSE);
+    include(BASEPATH . '/php/init.php');
+
+    header('Content-Type: application/json; charset=utf-8');
+
+    $q = trim($_GET['q'] ?? '');
+    $minChars = 3;
+
+    if (mb_strlen($q) < $minChars) {
+        echo json_encode(['q' => $q, 'groups' => []], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        return;
+    }
+
+    // Basic hard limits to keep this endpoint fast and safe
+    $limitProjects = 8;
+    $limitPersons  = 8;
+
+    // Escape regex input (prevent regex injection / weird backtracking)
+    $escaped = preg_quote($q, '/');
+
+    // Case-insensitive patterns
+    $rxPrefix  = '^' . $escaped;
+    $rxContain = $escaped;
+
+    $groups = [];
+
+    // --- Projects
+    if ($Settings->featureEnabled('projects') && $Settings->hasPermission('projects.view')) {
+
+        // Aggregation pipeline to rank prefix matches higher than contains matches.
+        // Fields: acronym, name (as you said)
+        $pipeline = [
+            [
+                '$match' => [
+                    '$or' => [
+                        ['acronym' => ['$regex' => $rxContain, '$options' => 'i']],
+                        ['name'    => ['$regex' => $rxContain, '$options' => 'i']],
+                    ]
+                ]
+            ],
+            [
+                '$addFields' => [
+                    // Prefix boosts
+                    '_cp_prefix_acronym' => [
+                        '$cond' => [['$regexMatch' => ['input' => '$acronym', 'regex' => $rxPrefix, 'options' => 'i']], 1, 0]
+                    ],
+                    '_cp_prefix_name' => [
+                        '$cond' => [['$regexMatch' => ['input' => '$name', 'regex' => $rxPrefix, 'options' => 'i']], 1, 0]
+                    ],
+                    // Contains (weaker) boosts
+                    '_cp_contain_acronym' => [
+                        '$cond' => [['$regexMatch' => ['input' => '$acronym', 'regex' => $rxContain, 'options' => 'i']], 1, 0]
+                    ],
+                    '_cp_contain_name' => [
+                        '$cond' => [['$regexMatch' => ['input' => '$name', 'regex' => $rxContain, 'options' => 'i']], 1, 0]
+                    ],
+                ]
+            ],
+            [
+                '$addFields' => [
+                    // Weighted score (tweak weights later)
+                    '_cp_score' => [
+                        '$add' => [
+                            ['$multiply' => ['$_cp_prefix_acronym', 50]],
+                            ['$multiply' => ['$_cp_prefix_name', 30]],
+                            ['$multiply' => ['$_cp_contain_acronym', 10]],
+                            ['$multiply' => ['$_cp_contain_name', 5]],
+                        ]
+                    ]
+                ]
+            ],
+            ['$sort' => ['_cp_score' => -1, 'acronym' => 1, 'name' => 1]],
+            ['$limit' => $limitProjects],
+            [
+                '$project' => [
+                    '_id' => 1,
+                    'acronym' => 1,
+                    'name' => 1,
+                    '_cp_score' => 1
+                ]
+            ]
+        ];
+
+        $cursor = $osiris->projects->aggregate($pipeline);
+        $items = [];
+
+        foreach ($cursor as $doc) {
+            $id = (string)$doc->_id;
+            $label = ($doc->name ?? '');
+            if (isset($doc->acronym) && !empty($doc->acronym)) {
+                $label = $doc->acronym . ' - ' . $label;
+            }
+
+            $items[] = [
+                'id' => 'project:' . $id,
+                'type' => lang('Entity', 'Entität'),
+                'entity' => 'project',
+                'label' => $label,
+                'url' => '/projects/view/' . $id,
+                'icon' => 'tree-structure',
+                'priority' => (int)($doc->_cp_score ?? 0),
+            ];
+        }
+
+        if (!empty($items)) {
+            $groups[] = [
+                'id' => 'projects',
+                'label' => lang('Projects', 'Projekte'),
+                'items' => $items
+            ];
+        }
+    }
+
+    // --- Proposals
+    if ($Settings->featureEnabled('projects') && $Settings->hasPermission('proposals.view')) {
+
+        // Aggregation pipeline to rank prefix matches higher than contains matches.
+        // Fields: acronym, name (as you said)
+        $pipeline = [
+            [
+                '$match' => [
+                    '$or' => [
+                        ['acronym' => ['$regex' => $rxContain, '$options' => 'i']],
+                        ['name'    => ['$regex' => $rxContain, '$options' => 'i']],
+                    ]
+                ]
+            ],
+            [
+                '$addFields' => [
+                    // Prefix boosts
+                    '_cp_prefix_acronym' => [
+                        '$cond' => [['$regexMatch' => ['input' => '$acronym', 'regex' => $rxPrefix, 'options' => 'i']], 1, 0]
+                    ],
+                    '_cp_prefix_name' => [
+                        '$cond' => [['$regexMatch' => ['input' => '$name', 'regex' => $rxPrefix, 'options' => 'i']], 1, 0]
+                    ],
+                    // Contains (weaker) boosts
+                    '_cp_contain_acronym' => [
+                        '$cond' => [['$regexMatch' => ['input' => '$acronym', 'regex' => $rxContain, 'options' => 'i']], 1, 0]
+                    ],
+                    '_cp_contain_name' => [
+                        '$cond' => [['$regexMatch' => ['input' => '$name', 'regex' => $rxContain, 'options' => 'i']], 1, 0]
+                    ],
+                ]
+            ],
+            [
+                '$addFields' => [
+                    // Weighted score (tweak weights later)
+                    '_cp_score' => [
+                        '$add' => [
+                            ['$multiply' => ['$_cp_prefix_acronym', 50]],
+                            ['$multiply' => ['$_cp_prefix_name', 30]],
+                            ['$multiply' => ['$_cp_contain_acronym', 10]],
+                            ['$multiply' => ['$_cp_contain_name', 5]],
+                        ]
+                    ]
+                ]
+            ],
+            ['$sort' => ['_cp_score' => -1, 'acronym' => 1, 'name' => 1]],
+            ['$limit' => $limitProjects],
+            [
+                '$project' => [
+                    '_id' => 1,
+                    'acronym' => 1,
+                    'name' => 1,
+                    '_cp_score' => 1
+                ]
+            ]
+        ];
+
+        $cursor = $osiris->proposals->aggregate($pipeline);
+        $items = [];
+
+        foreach ($cursor as $doc) {
+            $id = (string)$doc->_id;
+            $label = ($doc->name ?? '');
+            if (isset($doc->acronym) && !empty($doc->acronym)) {
+                $label = $doc->acronym . ' - ' . $label;
+            }
+
+            $items[] = [
+                'id' => 'proposal:' . $id,
+                'type' => lang('Entity', 'Entität'),
+                'entity' => 'proposal',
+                'label' => $label,
+                'url' => '/proposals/view/' . $id,
+                'icon' => 'tree-structure',
+                'priority' => (int)($doc->_cp_score ?? 0),
+            ];
+        }
+
+        if (!empty($items)) {
+            $groups[] = [
+                'id' => 'proposals',
+                'label' => lang('Project Proposals', 'Projektanträge'),
+                'items' => $items
+            ];
+        }
+    }
+
+    // --- Persons
+
+    $pipeline = [
+        [
+            '$match' => [
+                'search_text' => ['$regex' => $rxContain, '$options' => 'i']
+            ]
+        ],
+        [
+            '$addFields' => [
+                '_cp_prefix' => [
+                    '$cond' => [['$regexMatch' => ['input' => '$search_text', 'regex' => $rxPrefix, 'options' => 'i']], 1, 0]
+                ],
+                '_cp_contain' => [
+                    '$cond' => [['$regexMatch' => ['input' => '$search_text', 'regex' => $rxContain, 'options' => 'i']], 1, 0]
+                ],
+            ]
+        ],
+        [
+            '$addFields' => [
+                '_cp_score' => [
+                    '$add' => [
+                        ['$multiply' => ['$_cp_prefix', 40]],
+                        ['$multiply' => ['$_cp_contain', 10]],
+                    ]
+                ]
+            ]
+        ],
+        ['$sort' => ['_cp_score' => -1, 'displayname' => 1]],
+        ['$limit' => $limitPersons],
+        [
+            '$project' => [
+                '_id' => 1,
+                'displayname' => 1,
+                '_cp_score' => 1
+            ]
+        ]
+    ];
+
+    $cursor = $osiris->persons->aggregate($pipeline);
+    $items = [];
+
+    foreach ($cursor as $doc) {
+        $id = (string)$doc->_id;
+
+        $items[] = [
+            'id' => 'person:' . $id,
+            'type' => lang('Entity', 'Entität'),
+            'entity' => 'person',
+            'label' => (string)($doc->displayname ?? $id),
+            'url' => '/profile/' . $id,
+            'icon' => 'user',
+            'priority' => (int)($doc->_cp_score ?? 0),
+        ];
+    }
+
+    if (!empty($items)) {
+        $groups[] = [
+            'id' => 'persons',
+            'label' => lang('People', 'Personen'),
+            'items' => $items
+        ];
+    }
+
+    // --- Infrastructures
+    if (
+        $Settings->featureEnabled('infrastructures') &&
+        $Settings->hasPermission('infrastructures.view')
+    ) {
+
+        $pipeline = [
+            [
+                '$match' => [
+                    '$or' => [
+                        ['name'    => ['$regex' => $rxContain, '$options' => 'i']],
+                        ['name_de' => ['$regex' => $rxContain, '$options' => 'i']],
+                    ]
+                ]
+            ],
+            [
+                '$addFields' => [
+                    '_cp_prefix_name' => [
+                        '$cond' => [['$regexMatch' => ['input' => '$name', 'regex' => $rxPrefix, 'options' => 'i']], 1, 0]
+                    ],
+                    '_cp_prefix_name_de' => [
+                        '$cond' => [['$regexMatch' => ['input' => '$name_de', 'regex' => $rxPrefix, 'options' => 'i']], 1, 0]
+                    ],
+                    '_cp_contain_name' => [
+                        '$cond' => [['$regexMatch' => ['input' => '$name', 'regex' => $rxContain, 'options' => 'i']], 1, 0]
+                    ],
+                ]
+            ],
+            [
+                '$addFields' => [
+                    '_cp_score' => [
+                        '$add' => [
+                            ['$multiply' => ['$_cp_prefix_name', 40]],
+                            ['$multiply' => ['$_cp_prefix_name_de', 40]],
+                            ['$multiply' => ['$_cp_contain_name', 10]],
+                        ]
+                    ]
+                ]
+            ],
+            ['$sort' => ['_cp_score' => -1, 'name' => 1]],
+            ['$limit' => 6],
+            ['$project' => ['_id' => 1, 'name' => 1, '_cp_score' => 1]]
+        ];
+
+        $cursor = $osiris->infrastructures->aggregate($pipeline);
+        $items = [];
+
+        foreach ($cursor as $doc) {
+            $id = (string)$doc->_id;
+
+            $items[] = [
+                'id' => 'infrastructure:' . $id,
+                'type' => lang('Entity', 'Entität'),
+                'entity' => 'infrastructure',
+                'label' => $doc->name ?? $id,
+                'url' => '/infrastructures/view/' . $id,
+                'icon' => 'cube-transparent',
+                'priority' => (int)$doc->_cp_score,
+            ];
+        }
+
+        if ($items) {
+            $groups[] = [
+                'id' => 'infrastructures',
+                'label' => lang('Infrastructures', 'Infrastrukturen'),
+                'items' => $items
+            ];
+        }
+    }
+
+    // --- Events
+    if ($Settings->featureEnabled('events')) {
+
+        $pipeline = [
+            [
+                '$match' => [
+                    '$or' => [
+                        ['title' => ['$regex' => $rxContain, '$options' => 'i']],
+                        ['title_full' => ['$regex' => $rxContain, '$options' => 'i']],
+                    ]
+                ]
+            ],
+            [
+                '$addFields' => [
+                    '_cp_prefix' => [
+                        '$cond' => [['$regexMatch' => ['input' => '$title', 'regex' => $rxPrefix, 'options' => 'i']], 1, 0]
+                    ],
+                    '_cp_contain' => [
+                        '$cond' => [['$regexMatch' => ['input' => '$title_full', 'regex' => $rxContain, 'options' => 'i']], 1, 0]
+                    ],
+                ]
+            ],
+            [
+                '$addFields' => [
+                    '_cp_score' => [
+                        '$add' => [
+                            ['$multiply' => ['$_cp_prefix', 40]],
+                            ['$multiply' => ['$_cp_contain', 10]],
+                        ]
+                    ]
+                ]
+            ],
+            ['$sort' => ['_cp_score' => -1, 'title' => 1]],
+            ['$limit' => 6],
+            ['$project' => ['_id' => 1, 'title' => 1, '_cp_score' => 1]]
+        ];
+
+        $cursor = $osiris->events->aggregate($pipeline);
+        $items = [];
+
+        foreach ($cursor as $doc) {
+            $id = (string)$doc->_id;
+
+            $items[] = [
+                'id' => 'event:' . $id,
+                'type' => lang('Entity', 'Entität'),
+                'entity' => 'event',
+                'label' => $doc->title ?? $id,
+                'url' => '/conferences/view/' . $id,
+                'icon' => 'calendar-dots',
+                'priority' => (int)$doc->_cp_score,
+            ];
+        }
+
+        if ($items) {
+            $groups[] = [
+                'id' => 'events',
+                'label' => lang('Events', 'Veranstaltungen'),
+                'items' => $items
+            ];
+        }
+    }
+
+    if ($Settings->featureEnabled('deadlines')) {
+        $pipeline = [
+            [
+                '$match' => [
+                    '$or' => [
+                        ['title' => ['$regex' => $rxContain, '$options' => 'i']],
+                    ]
+                ]
+            ],
+            [
+                '$addFields' => [
+                    '_cp_prefix' => [
+                        '$cond' => [['$regexMatch' => ['input' => '$title', 'regex' => $rxPrefix, 'options' => 'i']], 1, 0]
+                    ],
+                    '_cp_contain' => [
+                        '$cond' => [['$regexMatch' => ['input' => '$title', 'regex' => $rxContain, 'options' => 'i']], 1, 0]
+                    ],
+                ]
+            ],
+            [
+                '$addFields' => [
+                    '_cp_score' => [
+                        '$add' => [
+                            ['$multiply' => ['$_cp_prefix', 40]],
+                            ['$multiply' => ['$_cp_contain', 10]],
+                        ]
+                    ]
+                ]
+            ],
+            ['$sort' => ['_cp_score' => -1, 'title' => 1]],
+            ['$limit' => 6],
+            ['$project' => ['_id' => 1, 'title' => 1, '_cp_score' => 1]]
+        ];
+
+        $cursor = $osiris->deadlines->aggregate($pipeline);
+        $items = [];
+
+        foreach ($cursor as $doc) {
+            $id = (string)$doc->_id;
+
+            $items[] = [
+                'id' => 'deadline:' . $id,
+                'type' => lang('Entity', 'Entität'),
+                'entity' => 'deadline',
+                'label' => $doc->title ?? $id,
+                'url' => '/deadlines/view/' . $id,
+                'icon' => 'flag',
+                'priority' => (int)$doc->_cp_score,
+            ];
+        }
+
+        if ($items) {
+            $groups[] = [
+                'id' => 'deadlines',
+                'label' => lang('Deadlines', 'Fristen'),
+                'items' => $items
+            ];
+        }
+    }
+
+    // --- Groups / Units
+    $pipeline = [
+        [
+            '$match' => [
+                '$or' => [
+                    ['id'      => ['$regex' => $rxContain, '$options' => 'i']],
+                    ['name'    => ['$regex' => $rxContain, '$options' => 'i']],
+                    ['name_de' => ['$regex' => $rxContain, '$options' => 'i']],
+                ]
+            ]
+        ],
+        [
+            '$addFields' => [
+                '_cp_prefix_id' => [
+                    '$cond' => [['$regexMatch' => ['input' => '$id', 'regex' => $rxPrefix, 'options' => 'i']], 1, 0]
+                ],
+                '_cp_prefix_name' => [
+                    '$cond' => [['$regexMatch' => ['input' => '$name', 'regex' => $rxPrefix, 'options' => 'i']], 1, 0]
+                ],
+                '_cp_prefix_name_de' => [
+                    '$cond' => [['$regexMatch' => ['input' => '$name_de', 'regex' => $rxPrefix, 'options' => 'i']], 1, 0]
+                ],
+                '_cp_contain_name' => [
+                    '$cond' => [['$regexMatch' => ['input' => '$name', 'regex' => $rxContain, 'options' => 'i']], 1, 0]
+                ],
+            ]
+        ],
+        [
+            '$addFields' => [
+                '_cp_score' => [
+                    '$add' => [
+                        ['$multiply' => ['$_cp_prefix_id', 60]],
+                        ['$multiply' => ['$_cp_prefix_name', 40]],
+                        ['$multiply' => ['$_cp_prefix_name_de', 40]],
+                        ['$multiply' => ['$_cp_contain_name', 10]],
+                    ]
+                ]
+            ]
+        ],
+        ['$sort' => ['_cp_score' => -1, 'name' => 1, 'id' => 1]],
+        ['$limit' => 6],
+        ['$project' => ['_id' => 1, 'id' => 1, 'name' => 1, '_cp_score' => 1]]
+    ];
+
+    $cursor = $osiris->groups->aggregate($pipeline);
+    $items = [];
+
+    foreach ($cursor as $doc) {
+        $mongoId = (string)$doc->_id;
+        $label = (string)($doc->name ?? $doc->id ?? $mongoId);
+
+        $items[] = [
+            'id' => 'unit:' . $mongoId,
+            'type' => lang('Entity', 'Entität'),
+            'entity' => 'unit',
+            'label' => $label,
+            'url' => '/groups/view/' . $mongoId,
+            'icon' => 'users-three',
+            'priority' => (int)($doc->_cp_score ?? 0),
+        ];
+    }
+
+    if ($items) {
+        $groups[] = [
+            'id' => 'units',
+            'label' => lang('Units', 'Einheiten'),
+            'items' => $items
+        ];
+    }
+
+    // --- Organizations (synonyms is an array)
+    $pipeline = [
+        [
+            '$match' => [
+                '$or' => [
+                    ['name' => ['$regex' => $rxContain, '$options' => 'i']],
+                    ['synonyms' => ['$regex' => $rxContain, '$options' => 'i']], // works with arrays
+                ]
+            ]
+        ],
+        [
+            '$addFields' => [
+                '_cp_prefix_name' => [
+                    '$cond' => [['$regexMatch' => ['input' => '$name', 'regex' => $rxPrefix, 'options' => 'i']], 1, 0]
+                ],
+                '_cp_contain_name' => [
+                    '$cond' => [['$regexMatch' => ['input' => '$name', 'regex' => $rxContain, 'options' => 'i']], 1, 0]
+                ],
+
+            ]
+        ],
+        [
+            '$addFields' => [
+                '_cp_score' => [
+                    '$add' => [
+                        ['$multiply' => ['$_cp_prefix_name', 50]],
+                        ['$multiply' => ['$_cp_syn_prefix', 25]],
+                        ['$multiply' => ['$_cp_contain_name', 10]],
+                    ]
+                ]
+            ]
+        ],
+        ['$sort' => ['_cp_score' => -1, 'name' => 1]],
+        ['$limit' => 6],
+        ['$project' => ['_id' => 1, 'name' => 1, '_cp_score' => 1]]
+    ];
+
+    $cursor = $osiris->organizations->aggregate($pipeline);
+    $items = [];
+
+    foreach ($cursor as $doc) {
+        $id = (string)$doc->_id;
+        $items[] = [
+            'id' => 'org:' . $id,
+            'type' => lang('Entity', 'Entität'),
+            'entity' => 'organization',
+            'label' => (string)($doc->name ?? $id),
+            'url' => '/organizations/view/' . $id,
+            'icon' => 'building-office',
+            'priority' => (int)($doc->_cp_score ?? 0),
+        ];
+    }
+
+    if ($items) {
+        $groups[] = [
+            'id' => 'organizations',
+            'label' => lang('Organizations', 'Organisationen'),
+            'items' => $items
+        ];
+    }
+
+
+    // --- Journals (always enabled)
+    {
+        $pipeline = [
+            [
+                '$match' => [
+                    '$or' => [
+                        ['journal' => ['$regex' => $rxContain, '$options' => 'i']],
+                        ['abbr'    => ['$regex' => $rxContain, '$options' => 'i']],
+                        ['issn'    => ['$regex' => $rxContain, '$options' => 'i']],
+                    ]
+                ]
+            ],
+            [
+                '$addFields' => [
+                    '_cp_prefix_journal' => [
+                        '$cond' => [['$regexMatch' => ['input' => '$journal', 'regex' => $rxPrefix, 'options' => 'i']], 1, 0]
+                    ],
+                    '_cp_prefix_abbr' => [
+                        '$cond' => [['$regexMatch' => ['input' => '$abbr', 'regex' => $rxPrefix, 'options' => 'i']], 1, 0]
+                    ],
+                    '_cp_exact_issn' => [
+                        '$cond' => [['$eq' => ['$issn', $q]], 1, 0]
+                    ]
+                ]
+            ],
+            [
+                '$addFields' => [
+                    '_cp_score' => [
+                        '$add' => [
+                            ['$multiply' => ['$_cp_exact_issn', 60]],
+                            ['$multiply' => ['$_cp_prefix_journal', 40]],
+                            ['$multiply' => ['$_cp_prefix_abbr', 30]],
+                        ]
+                    ]
+                ]
+            ],
+            ['$sort' => ['_cp_score' => -1, 'journal' => 1]],
+            ['$limit' => 6],
+            ['$project' => ['_id' => 1, 'journal' => 1, '_cp_score' => 1]]
+        ];
+
+        $cursor = $osiris->journals->aggregate($pipeline);
+        $items = [];
+
+        foreach ($cursor as $doc) {
+            $id = (string)$doc->_id;
+
+            $items[] = [
+                'id' => 'journal:' . $id,
+                'type' => lang('Entity', 'Entität'),
+                'entity' => 'journal',
+                'label' => $doc->journal ?? $id,
+                'url' => '/journal/view/' . $id,
+                'icon' => 'stack',
+                'priority' => (int)$doc->_cp_score,
+            ];
+        }
+
+        if ($items) {
+            $groups[] = [
+                'id' => 'journals',
+                'label' => lang('Journals', 'Journale'),
+                'items' => $items
+            ];
+        }
+    }
+
+
+    echo json_encode(['q' => $q, 'groups' => $groups], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 });

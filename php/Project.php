@@ -4,12 +4,12 @@
  * Class for all project associated methods.
  * 
  * This file is part of the OSIRIS package.
- * Copyright (c) 2024 Julia Koblitz, OSIRIS Solutions GmbH
+ * Copyright (c) 2026 Julia Koblitz, OSIRIS Solutions GmbH
  * 
  * @package OSIRIS
  * @since 1.2.2
  * 
- * @copyright	Copyright (c) 2024 Julia Koblitz, OSIRIS Solutions GmbH
+ * @copyright	Copyright (c) 2026 Julia Koblitz, OSIRIS Solutions GmbH
  * @author		Julia Koblitz <julia.koblitz@osiris-solutions.de>
  * @license     MIT
  */
@@ -268,6 +268,11 @@ class Project extends Vocabulary
             case 'submission_date':
             case 'approval_date':
             case 'rejection_date':
+                if ($field == 'start' && empty($value)) {
+                    $value = $this->project['start_date'] ?? '';
+                } elseif ($field == 'end' && empty($value)) {
+                    $value = $this->project['end_date'] ?? '';
+                }
                 return Document::format_date($value);
             case 'joint_project':
                 return $this->getJointProject();
@@ -612,10 +617,9 @@ class Project extends Vocabulary
     }
 
     /**
-     * Convert MongoDB document to array.
+     * Get date range as string, e.g. "01/2020 - 12/2021". If end date is empty, return "01/2020 - unknown".
      *
-     * @param $doc MongoDB Document.
-     * @return array Document array.
+     * @return string Date range.
      */
     public function getDateRange()
     {
@@ -626,16 +630,21 @@ class Project extends Vocabulary
 
     function inPast()
     {
-        if ($this->project['end'] === null || !isset($this->project['end']['year'])) {
-            // no end date set, so project is probably ongoing
-            return false;
+        if (!isset($this->project['end']) && isset($this->project['end_date'])){
+                // ISO date format
+                $end = new DateTime($this->project['end_date']);
+        } else {
+            if (!isset($this->project['end']) || !isset($this->project['end']['year'])) {
+                // no end date set, so project is probably ongoing
+                return false;
+            }
+            $end = new DateTime();
+            $end->setDate(
+                $this->project['end']['year'],
+                $this->project['end']['month'] ?? 1,
+                $this->project['end']['day'] ?? 1
+            );
         }
-        $end = new DateTime();
-        $end->setDate(
-            $this->project['end']['year'],
-            $this->project['end']['month'] ?? 1,
-            $this->project['end']['day'] ?? 1
-        );
         $today = new DateTime();
         if ($end < $today) return true;
         return false;

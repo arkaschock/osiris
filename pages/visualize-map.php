@@ -4,17 +4,32 @@
  * Page to visualize collaborators on a map
  * 
  * This file is part of the OSIRIS package.
- * Copyright (c) 2024 Julia Koblitz, OSIRIS Solutions GmbH
+ * Copyright (c) 2026 Julia Koblitz, OSIRIS Solutions GmbH
  * 
  * @link /visualize/map
  *
  * @package OSIRIS
  * @since 1.3.0
  * 
- * @copyright	Copyright (c) 2024 Julia Koblitz, OSIRIS Solutions GmbH
+ * @copyright	Copyright (c) 2026 Julia Koblitz, OSIRIS Solutions GmbH
  * @author		Julia Koblitz <julia.koblitz@osiris-solutions.de>
  * @license     MIT
  */
+
+if (!$Settings->featureEnabled('projects')) {
+?>
+    <div class="alert danger">
+        <h3 class="title">
+            <?= lang('The collaborator map is not available.', 'Die Kooperations-Karte ist nicht verfügbar.') ?>
+        </h3>
+
+        <p>
+            <?= lang('The collaborator map is based on project collaborations and thus requires the projects module to be enabled. Please contact your administrator.', 'Die Kooperations-Karte basiert auf Projekt-Kooperationen und benötigt daher das Projekte-Modul. Bitte kontaktiere deinen Administrator.') ?>
+        </p>
+    </div>
+<?php
+    return;
+}
 
 $institute = $Settings->get('affiliation_details');
 $lat = $institute['lat'] ?? 52;

@@ -4,12 +4,12 @@
  * Core routing file
  * 
  * This file is part of the OSIRIS package.
- * Copyright (c) 2024 Julia Koblitz, OSIRIS Solutions GmbH
+ * Copyright (c) 2026 Julia Koblitz, OSIRIS Solutions GmbH
  *
  * @package     OSIRIS
  * @since       1.0.0
  * 
- * @copyright	Copyright (c) 2024 Julia Koblitz, OSIRIS Solutions GmbH
+ * @copyright	Copyright (c) 2026 Julia Koblitz, OSIRIS Solutions GmbH
  * @author		Julia Koblitz <julia.koblitz@osiris-solutions.de>
  * @license     MIT
  */
@@ -46,10 +46,6 @@ function lang($en, $de = null)
     return $lang == 'de' ? $de : $en;
 }
 
-// $_SESSION['loggedin'] = true;
-// $_SESSION['username'] = 'jko'; // default user for testing purposes
-
-
 include_once BASEPATH . "/php/Route.php";
 
 Route::get('/', function () {
@@ -61,7 +57,7 @@ Route::get('/', function () {
     if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] === false) {
         header("Location: " . ROOTPATH . "/user/login");
     } else {
-        $path = ROOTPATH . "/profile/" . $_SESSION['username'];
+        $path = ROOTPATH . "/home";
         if (!empty($_SERVER['QUERY_STRING'])) $path .= "?" . $_SERVER['QUERY_STRING'];
         header("Location: $path");
     }
@@ -74,44 +70,32 @@ if (defined('USER_MANAGEMENT') && strtoupper(USER_MANAGEMENT) == 'AUTH') {
 
 include_once BASEPATH . "/routes/login.php";
 
-function preferenceCookieSettings(): array
-{
-    $settings = [
-        'expires' => time() + 86400,
-        'path' => ROOTPATH . '/',
-        'httponly' => false,
-        'samesite' => 'Lax',
-    ];
+// check if user 
+if (empty($_SESSION['loggedin']) && !empty($_COOKIE['osiris-remember'])) {
+    include_once BASEPATH . "/php/DB.php";
+    $DB = new DB();
+    $osiris = $DB->db;
+    [$selector, $token] = explode(':', $_COOKIE['osiris-remember'], 2) + [null, null];
 
-    $host = parse_url('http://' . ($_SERVER['HTTP_HOST'] ?? ''), PHP_URL_HOST);
-    if (
-        !empty($host)
-        && $host !== 'localhost'
-        && $host !== 'testserver'
-        && filter_var($host, FILTER_VALIDATE_IP) === false
-    ) {
-        $settings['domain'] = $host;
+    if ($selector && $token) {
+        $remember = $osiris->rememberTokens->findOne([
+            'selector' => $selector,
+            'expires' => ['$gt' => date('Y-m-d H:i:s')]
+        ]);
+
+        if ($remember && password_verify($token, $remember['token_hash'])) {
+            $USER = $osiris->persons->findOne(['username' => $remember['username']]);
+
+            if ($USER) {
+                $_SESSION['loggedin'] = true;
+                $_SESSION['username'] = $USER['username'];
+                $_SESSION['name'] = $USER['displayname'];
+            }
+        }
     }
-
-    return $settings;
+    // clean up expired tokens
+    $osiris->rememberTokens->deleteMany(['expires' => ['$lte' => date('Y-m-d H:i:s')]]);
 }
-
-// Route::get('/test', function () {
-//     include_once BASEPATH . "/php/init.php";
-//     include_once BASEPATH . "/php/LDAPInterface.php";
-
-//     include BASEPATH . "/header.php";
-
-//     $LDAP = new LDAPInterface();
-//     // $LDAP->attributes = [];
-//     // $user = $LDAP->fetchUser('juk20');
-//     // echo $LDAP->convertObjectGUID($user['objectguid'][0]);
-//     $user = $LDAP->newUser('ironman');
-//     dump($user, true);
-
-//     include BASEPATH . "/footer.php";
-// });
-
 
 // route for language setting
 Route::get('/set-preferences', function () {
@@ -120,9 +104,17 @@ Route::get('/set-preferences', function () {
     // Language settings and cookies
     if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'GET' && array_key_exists('language', $_GET)) {
         $_COOKIE['osiris-language'] = $_GET['language'] === 'en' ? 'en' : 'de';
-        setcookie('osiris-language', $_COOKIE['osiris-language'], preferenceCookieSettings());
+        $domain = ($_SERVER['HTTP_HOST'] != 'testserver') ? $_SERVER['HTTP_HOST'] : false;
+        setcookie('osiris-language', $_COOKIE['osiris-language'], [
+            'expires' => time() + 86400,
+            'path' => ROOTPATH . '/',
+            'domain' =>  $domain,
+            'httponly' => false,
+            'samesite' => 'Lax',
+        ]);
         // save language in user profile
-        if (isset($_SESSION['loggedin']) && $_SESSION['loggedin'] === true
+        if (
+            isset($_SESSION['loggedin']) && $_SESSION['loggedin'] === true
             && isset($_SESSION['username']) && !empty($_SESSION['username'])
         ) {
             $osiris->persons->updateOne(
@@ -133,7 +125,15 @@ Route::get('/set-preferences', function () {
     }
     // check if accessibility settings are given
     if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'GET' && array_key_exists('accessibility', $_GET)) {
-        $cookie_settings = preferenceCookieSettings();
+        // define base parameter
+        $domain = $_SERVER['HTTP_HOST'];
+        $cookie_settings = [
+            'expires' => time() + 86400,
+            'path' => ROOTPATH . '/',
+            'domain' =>  $domain,
+            'httponly' => false,
+            'samesite' => 'Lax',
+        ];
 
         // set cookies for current sessions
         $_COOKIE['D3-accessibility-contrast'] = $_GET['accessibility']['contrast'] ?? '';
@@ -163,6 +163,64 @@ if (
     &&
     isset($_SESSION['username']) && !empty($_SESSION['username'])
 ) {
+
+    Route::get('/home', function () {
+        include_once BASEPATH . "/php/init.php";
+
+        // get user info
+        $user = $_SESSION['username'];
+        $scientist = $DB->getPerson($user);
+
+        $notifications = $DB->notifications();
+        // check which features are enabled
+        $hasNews = false;
+        if (
+            $Settings->featureEnabled('new-publications', true)
+            || $Settings->featureEnabled('news', true)
+            || ($Settings->featureEnabled('quarterly-reporting', true) && isset($notifications['approval']))
+            || $Settings->featureEnabled('new-colleagues', true)
+        ) {
+            $hasNews = true;
+        }
+
+        $hasEvents = $Settings->featureEnabled('events', false);
+
+        // include necessary classes
+        include_once BASEPATH . "/php/Vocabulary.php";
+        $Vocabulary = new Vocabulary();
+
+        // if no dashboard widgets are enabled, redirect to profile
+        if (!$hasNews && !$hasEvents) {
+            include_once BASEPATH . "/php/Document.php";
+            include_once BASEPATH . "/php/_achievements.php";
+
+            $Format = new Document($user);
+
+            if (empty($scientist)) {
+                $_SESSION['msg'] = lang("User not found.", "Benutzer nicht gefunden.");
+                $_SESSION['msg_type'] = "error";
+                header("Location: " . ROOTPATH . "/user/browse");
+                die;
+            }
+            $name = $scientist['displayname'];
+
+            $breadcrumb = [
+                ['name' => lang('Users', 'Personen'), 'path' => "/user/browse"],
+                ['name' => $name]
+            ];
+
+            include BASEPATH . "/header.php";
+            include BASEPATH . "/pages/profile.php";
+        } else {
+            $breadcrumb = [
+                ['name' => lang('Home', 'Startseite')]
+            ];
+            include BASEPATH . "/header.php";
+            include BASEPATH . "/pages/home.php";
+        }
+        include BASEPATH . "/footer.php";
+    });
+
     include_once BASEPATH . "/routes/data.php";
     include_once BASEPATH . "/routes/export.php";
     include_once BASEPATH . "/routes/database.php";
@@ -179,14 +237,15 @@ if (
     include_once BASEPATH . "/routes/visualize.php";
     include_once BASEPATH . "/routes/activities.php";
     include_once BASEPATH . "/routes/reports.php";
-    include_once BASEPATH . "/routes/concepts.php";
-    include_once BASEPATH . "/routes/admin.php";
+    include_once BASEPATH . "/routes/spectrum.php";
     include_once BASEPATH . "/routes/events.php";
     require_once BASEPATH . '/routes/guests.php';
+    require_once BASEPATH . '/routes/news.php';
     include_once BASEPATH . "/routes/calendar.php";
     include_once BASEPATH . "/routes/infrastructures.php";
     include_once BASEPATH . "/routes/organizations.php";
     include_once BASEPATH . "/routes/workflows.php";
+    include_once BASEPATH . "/routes/admin.php";
     // include_once BASEPATH . "/routes/adminGeneral.php";
     // include_once BASEPATH . "/routes/adminRoles.php";
 
@@ -244,15 +303,29 @@ Route::pathNotFound(function ($path) {
 
 // Add a 405 method not allowed route
 Route::methodNotAllowed(function ($path, $method) {
-    // Do not forget to send a status header back to the client
-    // The router will not send any headers by default
-    // So you will have the full flexibility to handle this case
-    header('HTTP/1.0 405 Method Not Allowed');
-    $error = 405;
-    include BASEPATH . "/header.php";
-    // include BASEPATH . "/pages/error.php";
-    echo "Error 405";
-    include BASEPATH . "/footer.php";
+    http_response_code(405);
+    // Check the Accept header to determine the content type
+    $acceptHeader = isset($_SERVER['HTTP_ACCEPT']) ? $_SERVER['HTTP_ACCEPT'] : 'text/html';
+
+    header("HTTP/1.0 405 Method Not Allowed");
+    if (strpos($acceptHeader, 'application/json') !== false) {
+        // Send JSON response for scripts expecting JSON
+        header('Content-Type: application/json');
+        echo json_encode(['error' => '405 Method Not Allowed']);
+    } elseif (strpos($acceptHeader, 'text/plain') !== false) {
+        // Send plain text response for scripts expecting text
+        header('Content-Type: text/plain');
+        echo "405 Method Not Allowed";
+    } elseif (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] === false) {
+        header("Location: " . ROOTPATH . "/user/login?redirect=" . urlencode($_SERVER['REQUEST_URI']));
+    } else {
+        // Send HTML response for users
+        $error = 405;
+        include BASEPATH . "/header.php";
+
+        include BASEPATH . "/pages/error.php";
+        include BASEPATH . "/footer.php";
+    }
 });
 
 

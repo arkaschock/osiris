@@ -4,12 +4,12 @@
  * Routing for API
  * 
  * This file is part of the OSIRIS package.
- * Copyright (c) 2024 Julia Koblitz, OSIRIS Solutions GmbH
+ * Copyright (c) 2026 Julia Koblitz, OSIRIS Solutions GmbH
  *
  * @package     OSIRIS
  * @since       1.0.0
  * 
- * @copyright	Copyright (c) 2024 Julia Koblitz, OSIRIS Solutions GmbH
+ * @copyright	Copyright (c) 2026 Julia Koblitz, OSIRIS Solutions GmbH
  * @author		Julia Koblitz <julia.koblitz@osiris-solutions.de>
  * @license     MIT
  */
@@ -54,16 +54,6 @@ function apikey_check($key = null)
 
     // 5) Everything else: no access
     return false;
-    // $Settings = new Settings();
-    // $APIKEY = $Settings->get('apikey');
-    // // always true if API Key is not set
-    // if (!isset($APIKEY) || empty($APIKEY)) return true;
-    // // return true for same page origin
-    // if (isset($_SERVER['HTTP_SEC_FETCH_SITE']) && $_SERVER['HTTP_SEC_FETCH_SITE'] == 'same-origin') return true;
-    // // check if API key is valid
-    // if ($APIKEY == $key) return true;
-    // // otherwise return false
-    // return false;
 }
 
 function return_permission_denied()
@@ -270,7 +260,7 @@ Route::get('/api/html', function () {
     $docs = $osiris->activities->find([
         'type' => 'publication',
         'authors.aoi' => ['$in' => [true, 1, '1']],
-        'year' => ['$gte' => 2023]
+        'year' => ['$gte' => $Settings->get('startyear', 1900)]
     ]);
 
     foreach ($docs as $i => $doc) {
@@ -279,7 +269,7 @@ Route::get('/api/html', function () {
         if (isset($doc['rendered'])) {
             $rendered = $doc['rendered'];
         } else {
-            $rendered = renderActivities(['_id' => $id]);
+            $rendered = renderActivities(['_id' => $doc['_id']]);
         }
 
         $link = null;
@@ -310,14 +300,17 @@ Route::get('/api/all-activities', function () {
     error_reporting(E_ERROR | E_PARSE);
     include_once BASEPATH . "/php/init.php";
 
-    // if (!apikey_check($_GET['apikey'] ?? null)) {
-    //     echo return_permission_denied();
-    //     die;
-    // }
+    if (!apikey_check($_GET['apikey'] ?? null)) {
+        echo return_permission_denied();
+        die;
+    }
 
     include_once BASEPATH . "/php/Render.php";
-    include_once BASEPATH . "/php/Document.php";
 
+    // render all activities that have not rendered yet (e.g. after data import)
+    renderActivities(['rendered' => ['$exists' => false]], false);
+
+    include_once BASEPATH . "/php/Document.php";
 
     $user = $_GET['user'] ?? $_SESSION['username'] ?? null;
     $page = $_GET['page'] ?? 'all-activities';
@@ -333,15 +326,9 @@ Route::get('/api/all-activities', function () {
     if (isset($filter['projects'])) {
         $filter['projects'] = DB::to_ObjectID($filter['projects']);
     }
-    // if (!isset($_GET['apikey']) && isset($_SESSION['username'])) {
-
     if (isset($_GET['type']) && $_GET['type'] !== '') {
         $filter['type'] = $_GET['type'];
     }
-    // if (!empty($filter)){
-    //     $filter = ['$and' => [$filter]];
-    // }
-
     $perm_filter = $Settings->getActivityFilter($filter);
     if ($page == "my-activities") {
         // reduced filter for my activities
@@ -366,7 +353,7 @@ Route::get('/api/all-activities', function () {
     $i = 0;
     $first = true;
 
-    $display = $_GET['display_activities'] ?? 'web';
+    $display = $USER['display_activities'] ?? 'web';
     $activityField = $display === 'web'
         ? '$rendered.web'
         : '$rendered.print';
@@ -430,7 +417,7 @@ Route::get('/api/all-activities', function () {
 
 
 
-Route::get('/api/concept-activities', function () {
+Route::get('/api/spectrum-activities', function () {
     error_reporting(E_ERROR | E_PARSE);
     include_once BASEPATH . "/php/init.php";
 
@@ -441,18 +428,18 @@ Route::get('/api/concept-activities', function () {
 
     include_once BASEPATH . "/php/Document.php";
 
-    $name = $_GET['concept'];
+    $name = $_GET['spectrum'];
 
-    $concepts = $osiris->activities->aggregate(
+    $spectrum = $osiris->activities->aggregate(
         [
-            ['$match' => ['concepts.display_name' => $name]],
-            ['$project' => ['rendered' => 1, 'concepts' => 1]],
-            ['$unwind' => '$concepts'],
-            ['$match' => ['concepts.display_name' => $name]],
-            ['$sort' => ['concepts.score' => -1]],
+            ['$match' => ['spectrum.display_name' => $name]],
+            ['$project' => ['rendered' => 1, 'spectrum' => 1]],
+            ['$unwind' => '$spectrum'],
+            ['$match' => ['spectrum.display_name' => $name]],
+            ['$sort' => ['spectrum.score' => -1]],
             ['$project' => [
                 '_id' => 0,
-                'score' => '$concepts.score',
+                'score' => '$spectrum.score',
                 'icon' => '$rendered.icon',
                 'activity' => '$rendered.web',
                 'type' => '$rendered.type',
@@ -461,11 +448,11 @@ Route::get('/api/concept-activities', function () {
         ]
     )->toArray();
 
-    echo return_rest($concepts);
+    echo return_rest($spectrum);
 });
 
 
-Route::get('/api/(conferences|events)', function ($type) {
+Route::get('/api/(conferences|events|deadlines)', function ($type) {
     error_reporting(E_ERROR | E_PARSE);
     include_once BASEPATH . "/php/init.php";
 
@@ -473,14 +460,23 @@ Route::get('/api/(conferences|events)', function ($type) {
         echo return_permission_denied();
         die;
     }
+    $collection = 'conferences';
+    $filter = [];
 
-    $events = $osiris->conferences->find(
-        [],
+    if ($type === 'deadlines') {
+        $collection = 'deadlines';
+    }
+    $events = $osiris->$collection->find(
+        $filter,
         ['sort' => ['start' => -1]]
     )->toArray();
 
     foreach ($events as $i => $row) {
         $events[$i]['id'] = strval($row['_id']);
+        if ($type == 'deadlines') {
+            $roles = DB::doc2Arr($row['roles'] ?? []);
+            $events[$i]['relevant'] = !empty(array_intersect($Settings->roles, $roles));
+        }
     }
 
     echo return_rest($events);
@@ -510,7 +506,11 @@ Route::get('/api/users', function () {
             $filter = json_decode($filter, true);
         }
         if (isset($filter['is_active'])) {
-            $filter['is_active'] = boolval($filter['is_active']);
+            if (boolval($filter['is_active']) === true) {
+                $filter['is_active'] = ['$ne' => false];
+            } else {
+                $filter['is_active'] = false;
+            }
         }
     }
     if (isset($_GET['json'])) {
@@ -564,7 +564,7 @@ Route::get('/api/users', function () {
         }
         $topics = '';
         if ($topicsEnabled && $user['topics'] ?? false) {
-            $topics = '<span class="float-right topic-icons">';
+            $topics = '<span class="topic-icons">';
             foreach ($user['topics'] as $topic) {
                 $topics .= '<a href="' . ROOTPATH . '/topics/view/' . $topic . '" class="topic-icon topic-' . $topic . '"></a> ';
             }
@@ -579,11 +579,27 @@ Route::get('/api/users', function () {
             }
             $user['last'] = $user['username'];
         }
-        $table[] = [
-            'id' => strval($user['_id']),
-            'username' => $user['username'],
-            'img' => $Settings->printProfilePicture($user['username'], 'profile-img'),
-            'html' =>  "<div class='w-full'>
+        if (isset($_GET['columns'])) {
+            $columns = $_GET['columns'];
+            $entry = [
+                'id' => strval($user['_id']),
+                'username' => $user['username'],
+                'name' => $user['first'] . " " . $user['last'],
+                'first' => $user['first'],
+                'last' => $user['last'],
+                'position' => lang($user['position'] ?? '', $user['position_de'] ?? null),
+                'mail' => $user['mail'] ?? '',
+            ];
+            foreach ($columns as $col){
+                $entry[$col] = $user[$col] ?? null;
+            }
+            $table[] = $entry;
+        } else {
+            $table[] = [
+                'id' => strval($user['_id']),
+                'username' => $user['username'],
+                'img' => $Settings->printProfilePicture($user['username'], 'profile-img'),
+                'html' =>  "<div class='w-full'>
                     <div style='display: none;'>" . $user['first'] . " " . $user['last'] . "</div>$guest
                     $topics
                     <h5 class='my-0'>
@@ -596,22 +612,23 @@ Route::get('/api/users', function () {
                     </small>
                     <span class='hidden'>$user[username]</span>
                 </div>",
-            'name' => $user['first'] . " " . $user['last'],
-            'names' => !empty($user['names'] ?? null) ? implode(', ', DB::doc2Arr($user['names'])) : '',
-            'first' => $user['first'],
-            'last' => $user['last'],
-            'position' => lang($user['position'] ?? '', $user['position_de'] ?? null),
-            'mail' => $user['mail'] ?? '',
-            'telephone' => $user['telephone'] ?? '',
-            'orcid' => $user['orcid'] ?? '',
-            'academic_title' => $user['academic_title'],
-            'dept' => $units,
-            'active' => ($user['is_active'] ?? true) ? 'yes' : 'no',
-            'public_image' => $user['public_image'] ?? true,
-            'topics' => $user['topics'] ?? array(),
-            'keywords' => $user['keywords'] ?? array(),
-            'roles' => $user['roles'] ?? array(),
-        ];
+                'name' => $user['first'] . " " . $user['last'],
+                'names' => !empty($user['names'] ?? null) ? implode(', ', DB::doc2Arr($user['names'])) : '',
+                'first' => $user['first'],
+                'last' => $user['last'],
+                'position' => lang($user['position'] ?? '', $user['position_de'] ?? null),
+                'mail' => $user['mail'] ?? '',
+                'telephone' => $user['telephone'] ?? '',
+                'orcid' => $user['orcid'] ?? '',
+                'academic_title' => $user['academic_title'],
+                'dept' => $units,
+                'active' => ($user['is_active'] ?? true) ? 'yes' : 'no',
+                'public_image' => $user['public_image'] ?? true,
+                'topics' => $user['topics'] ?? array(),
+                'keywords' => $user['keywords'] ?? array(),
+                'roles' => $user['roles'] ?? array(),
+            ];
+        }
     }
     echo return_rest($table, count($table));
 });
@@ -655,10 +672,10 @@ Route::get('/api/user-units/(.*)', function ($id) {
     error_reporting(E_ERROR | E_PARSE);
     include_once BASEPATH . "/php/init.php";
 
-    // if (!apikey_check($_GET['apikey'] ?? null)) {
-    //     echo return_permission_denied();
-    //     die;
-    // }
+    if (!apikey_check($_GET['apikey'] ?? null)) {
+        echo return_permission_denied();
+        die;
+    }
     if (DB::is_ObjectID($id)) {
         $filter = ['_id' => DB::to_ObjectID($id)];
     } else {
@@ -790,7 +807,24 @@ Route::get('/api/teaching', function () {
         ]];
     }
     $result = $osiris->teaching->find($filter)->toArray();
-    echo return_rest($result, count($result));
+    $teaching = [];
+    foreach ($result as $doc) {
+        $aff = $doc['affiliation'] ?? '';
+        if (DB::is_ObjectID($aff)) {
+            $aff = $osiris->organizations->findOne(['_id' => DB::to_ObjectID($aff)], ['projection' => ['name' => 1]]);
+            $aff = $aff['name'] ?? '';
+        }
+        $t = [
+            'id' => strval($doc['_id']),
+            'title' => $doc['title'] ?? '',
+            'module' => $doc['module'] ?? '',
+            'semester' => $doc['semester'] ?? '',
+            'affiliation' => $aff
+        ];
+        $teaching[] = $t;
+    }
+
+    echo return_rest($teaching, count($teaching));
 });
 
 
@@ -1003,6 +1037,13 @@ Route::get('/api/search/(projects|proposals|activities|conferences|journals|pers
     }
     if (isset($_GET['json'])) {
         $filter = json_decode($_GET['json'], true);
+        if (!is_array($filter)) {
+            $filter = [];
+        }
+        if (isset($filter['$and']) && empty($filter['$and'])) {
+            // this will otherwise produce an error, because $and must be a non-empty array
+            unset($filter['$and']);
+        }
     }
     if (isset($filter['public'])) $filter['public'] = boolval($filter['public']);
 
@@ -1038,7 +1079,10 @@ Route::get('/api/search/(projects|proposals|activities|conferences|journals|pers
         $first_part = $group_parts[0];
         if (in_array($first_part, $unwinds)) {
             // preserve null and empty arrays
-            $aggregate[] = ['$unwind' => ['$path' => '$' . $first_part, 'preserveNullAndEmptyArrays' => true]];
+            $aggregate[] = ['$unwind' => [
+                'path' => '$' . $first_part,
+                'preserveNullAndEmptyArrays' => true
+            ]];
         }
         $aggregate[] =
             ['$group' => ['_id' => '$' . $group, 'count' => ['$sum' => 1]]];
@@ -1397,10 +1441,10 @@ Route::get('/api/organizations', function () {
     error_reporting(E_ERROR | E_PARSE);
     include_once BASEPATH . "/php/init.php";
 
-    // if (!apikey_check($_GET['apikey'] ?? null)) {
-    //     echo return_permission_denied();
-    //     die;
-    // }
+    if (!apikey_check($_GET['apikey'] ?? null)) {
+        echo return_permission_denied();
+        die;
+    }
 
     $options = [
         'projection' => [
@@ -1440,4 +1484,112 @@ Route::get('/api/organizations', function () {
     }
     $result = $osiris->organizations->find($filter, $options)->toArray();
     echo return_rest($result, count($result));
+});
+
+
+Route::post('/api/openalex/enrich', function () {
+    include_once BASEPATH . "/php/init.php";
+    header('Content-Type: application/json; charset=utf-8');
+
+    if (empty($_POST['doi'])) {
+        http_response_code(400);
+        echo json_encode(['ok' => false, 'error' => 'Missing doi']);
+        return;
+    }
+
+    // Normalize DOI (lowercase, strip "doi:" prefix, trim)
+    $doi = trim($_POST['doi']);
+    $doiNorm = strtolower($doi);
+    $doiNorm = preg_replace('~^doi:\s*~i', '', $doiNorm);
+
+    // Find activities by DOI (case-insensitive)
+    // Using regex avoids missing mixed-case DOIs in DB.
+    $regex = new MongoDB\BSON\Regex('^' . preg_quote($doiNorm, '/') . '$', 'i');
+
+    $cursor = $osiris->activities->find([
+        'doi' => $regex
+    ], ['projection' => ['_id' => 1]]);
+
+    $activityIds = [];
+    foreach ($cursor as $doc) {
+        $activityIds[] = (string)$doc['_id'];
+    }
+
+    if (empty($activityIds)) {
+        // Still respond quickly; no activity found for this DOI
+        http_response_code(200);
+        echo json_encode(['ok' => true, 'skipped' => true, 'reason' => 'No matching activity for DOI']);
+        return;
+    }
+
+    @set_time_limit(20);
+
+    // Fetch OpenAlex work by DOI
+    $url = "https://api.openalex.org/works/doi:" . rawurlencode($doiNorm) . "?select=id,cited_by_count,updated_date,topics";
+
+    try {
+        $resp = CallAPI("GET", $url);
+        $json = json_decode($resp, true);
+    } catch (Throwable $e) {
+        $json = null;
+    }
+
+    // helper function to get only the ID from an OpenAlex entity URL
+    function extractOpenAlexId($url)
+    {
+        $parts = explode('/', rtrim($url, '/'));
+        return end($parts);
+    }
+
+    // Prepare openalex block
+    if (empty($json) || empty($json['id'])) {
+        $openalex = [
+            'status' => 'not_found',
+            'doi' => $doiNorm,
+            'fetched_at' => date('c'),
+            'source' => 'openalex'
+        ];
+    } else {
+        $topics = [];
+        if (isset($json['topics']) && is_array($json['topics'])) {
+            foreach ($json['topics'] as $topic) {
+                if (empty($topic['id'])) continue;
+                $t = [
+                    'id' => extractOpenAlexId($topic['id']),
+                    'name' => $topic['display_name'] ?? null,
+                    'score' => $topic['score'] ?? null,
+                    "subfield_id" => extractOpenAlexId($topic['subfield']['id'] ?? ''),
+                    "subfield" => $topic['subfield']['display_name'] ?? null,
+                    "field_id" => extractOpenAlexId($topic['field']['id'] ?? ''),
+                    "field" => $topic['field']['display_name'] ?? null,
+                    "domain_id" => extractOpenAlexId($topic['domain']['id'] ?? ''),
+                    "domain" => $topic['domain']['display_name'] ?? null
+                ];
+                $path = [];
+                if (!empty($t['domain'])) $path[] = $t['domain'];
+                if (!empty($t['field'])) $path[] = $t['field'];
+                if (!empty($t['subfield'])) $path[] = $t['subfield'];
+                $t['path'] = implode(' → ', $path);
+                $topics[] = $t;
+            }
+        }
+        $openalex = [
+            'id' => $json['id'],
+            'doi' => $doiNorm,
+            'cited_by_count' => $json['cited_by_count'] ?? null,
+            'topics' => $topics,
+            'updated_date' => $json['updated_date'] ?? null,
+            'fetched_at' => date('c'),
+            'source' => 'openalex'
+        ];
+    }
+    // echo json_encode($openalex);
+    // Update all matching activities
+    foreach ($activityIds as $id) {
+        $osiris->activities->updateOne(
+            ['_id' => DB::to_ObjectID($id)],
+            ['$set' => ['openalex' => $openalex]]
+        );
+    }
+    echo json_encode(['ok' => true, 'updated_activities' => count($activityIds), 'ids' => $activityIds, 'openalex_data' => $openalex]);
 });

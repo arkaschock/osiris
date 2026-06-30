@@ -4,12 +4,12 @@
  * Routing for export
  * 
  * This file is part of the OSIRIS package.
- * Copyright (c) 2024 Julia Koblitz, OSIRIS Solutions GmbH
+ * Copyright (c) 2026 Julia Koblitz, OSIRIS Solutions GmbH
  *
  * @package     OSIRIS
  * @since       1.0.0
  * 
- * @copyright	Copyright (c) 2024 Julia Koblitz, OSIRIS Solutions GmbH
+ * @copyright	Copyright (c) 2026 Julia Koblitz, OSIRIS Solutions GmbH
  * @author		Julia Koblitz <julia.koblitz@osiris-solutions.de>
  * @license     MIT
  */
@@ -21,7 +21,9 @@ Route::get('/reports', function () {
         // ['name' => 'Export', 'path' => "/export"],
         ['name' => lang("Reports", "Berichte")]
     ];
-
+    if (!$Settings->hasPermission('report.generate')) {
+        abortwith(403, lang('You do not have permission to generate reports.', 'Du hast keine Berechtigung, Berichte zu erstellen.'), "/", lang('Go back', 'Zurück'));
+    }
     include BASEPATH . "/header.php";
     include BASEPATH . "/pages/reports.php";
     include BASEPATH . "/footer.php";
@@ -34,7 +36,9 @@ Route::get('/admin/reports', function () {
         ['name' => lang('Reports', 'Berichte'), 'path' => "/reports"],
         ['name' => lang('Templates', 'Vorlagen')],
     ];
-    $page = 'reports-templates';
+    if (!$Settings->hasPermission('report.templates')) {
+        abortwith(403, lang('You do not have permission to manage report templates.', 'Du hast keine Berechtigung, Berichtsvorlagen zu verwalten.'), "/reports", lang('Go back', 'Zurück'));
+    }
     include BASEPATH . "/header.php";
     include BASEPATH . "/pages/reports-templates.php";
     include BASEPATH . "/footer.php";
@@ -47,6 +51,9 @@ Route::get('/admin/reports/builder/(.*)', function ($id) {
         ['name' => lang('Templates', 'Vorlagen'), 'path' => "/admin/reports"],
         ['name' => lang("Builder", "Editor")]
     ];
+    if (!$Settings->hasPermission('report.templates')) {
+        abortwith(403, lang('You do not have permission to manage report templates.', 'Du hast keine Berechtigung, Berichtsvorlagen zu verwalten.'), "/", lang('Go back', 'Zurück'));
+    }
 
     $report = [];
     $title = '';
@@ -58,7 +65,6 @@ Route::get('/admin/reports/builder/(.*)', function ($id) {
         $steps = $report['steps'];
     }
 
-    $page = 'admin/reports';
     include BASEPATH . "/header.php";
     include BASEPATH . "/pages/report-builder.php";
     include BASEPATH . "/footer.php";
@@ -73,12 +79,14 @@ Route::get('/admin/reports/preview/(.*)', function ($id) {
         ['name' => lang('Builder', 'Editor'), 'path' => "/admin/reports/builder/$id"],
         ['name' => lang("Preview", "Vorschau")]
     ];
-    if (!DB::is_ObjectID($id)) {
-        die('The Report does not exist.');
+    if (!$Settings->hasPermission('report.templates')) {
+        abortwith(403, lang('You do not have permission to manage report templates.', 'Du hast keine Berechtigung, Berichtsvorlagen zu verwalten.'), "/", lang('Go back', 'Zurück'));
     }
     $report = $osiris->adminReports->findOne(['_id' => DB::to_ObjectID($id)]);
+    if (empty($report)) {
+        abortwith(404, lang('Report', 'Bericht'), "/admin/reports");
+    }
 
-    $page = 'admin/reports';
     include BASEPATH . "/header.php";
     include BASEPATH . "/pages/report-preview.php";
     include BASEPATH . "/footer.php";
@@ -101,7 +109,9 @@ Route::post('/crud/reports/create', function () {
         'steps' => []
     ]);
     $id = $insertOneResult->getInsertedId();
-    header("Location: " . ROOTPATH . "/admin/reports/builder/$id?msg=success");
+    $_SESSION['msg'] = lang("Report template has been created successfully.", "Berichtsvorlage wurde erfolgreich erstellt.");
+    $_SESSION['msg_type'] = "success";
+    header("Location: " . ROOTPATH . "/admin/reports/builder/$id");
 }, 'login');
 
 
@@ -113,7 +123,9 @@ Route::post('/crud/reports/delete', function () {
     $id = $_POST['id'];
     $osiris->adminReports->deleteOne(['_id' => DB::to_ObjectID($id)]);
 
-    header("Location: " . ROOTPATH . "/admin/reports?msg=deleted");
+    $_SESSION['msg'] = lang("Report template has been deleted successfully.", "Berichtsvorlage wurde erfolgreich gelöscht.");
+    $_SESSION['msg_type'] = "success";
+    header("Location: " . ROOTPATH . "/admin/reports");
 }, 'login');
 
 
@@ -174,9 +186,30 @@ Route::post('/crud/reports/update', function () {
         ]
     );
 
-    // id
-    header("Location: " . ROOTPATH . "/admin/reports/builder/$id?msg=success");
+    $_SESSION['msg'] = lang("Report template has been updated successfully.", "Berichtsvorlage wurde erfolgreich aktualisiert.");
+    $_SESSION['msg_type'] = "success";
+    header("Location: " . ROOTPATH . "/admin/reports/builder/$id");
 }, 'login');
+
+
+Route::post('/crud/reports/update-order', function () {
+    include_once BASEPATH . "/php/init.php";
+    $collection = $osiris->adminReports;
+
+    foreach ($_POST['order'] as $i => $id) {
+        $collection->updateOne(
+            ['_id' => DB::to_ObjectID($id)],
+            ['$set' => ['order' => $i]]
+        );
+    }
+
+    $_SESSION['msg'] = lang("Order updated", "Reihenfolge aktualisiert");
+    $_SESSION['msg_type'] = 'success';
+    if (isset($_POST['redirect']) && !str_contains($_POST['redirect'], "//")) {
+        header("Location: " . $_POST['redirect']);
+        die();
+    }
+});
 
 
 // Report export
@@ -187,47 +220,37 @@ Route::post('/reports', function () {
     error_reporting(E_ERROR);
     // hide errors! otherwise they will break the word document
     if ($_POST['format'] == 'word') {
-        // error_reporting(E_ERROR);
-        ini_set('display_errors', 0);
+        error_reporting(E_ERROR);
+        // ini_set('display_errors', 0);
     }
     require_once BASEPATH . '/php/init.php';
     if (!isset($_POST['id'])) {
-        die('No Report ID provided');
+        abortwith(500, lang('No report ID provided.', 'Keine Bericht-ID angegeben.'), "/reports");
     }
     $id = $_POST['id'];
     $report = $osiris->adminReports->findOne(['_id' => DB::to_ObjectID($id)]);
     if (empty($report)) {
-        die('Report not found');
+        abortwith(404, lang('Report not found.', 'Bericht nicht gefunden.'), "/reports", lang('Go back to reports', 'Zurück zu den Berichten'));
     }
-
-    // select reportable data
-    // $cursor = $DB->get_reportable_activities($_POST['start'], $_POST['end']);
 
     // Creating the new document...
     \PhpOffice\PhpWord\Settings::setZipClass(\PhpOffice\PhpWord\Settings::PCLZIP);
     \PhpOffice\PhpWord\Settings::setOutputEscapingEnabled(true);
+
+
     $phpWord = new \PhpOffice\PhpWord\PhpWord();
+    $phpWord->getSettings()->setUpdateFields(true);
 
-    $phpWord->setDefaultFontName('Calibri');
-    $phpWord->setDefaultFontSize(11);
+    // Apply export design styles
+    include_once BASEPATH . "/php/ReportTemplate.php";
+    $ReportTemplate = new ReportTemplate();
+    $exportStyle = $ReportTemplate->getStyle();
+    $ReportTemplate->applyReportStyle($phpWord);
 
-    $phpWord->addNumberingStyle(
-        'hNum',
-        array(
-            'type' => 'multilevel',
-            'levels' => array(
-                array('pStyle' => 'Heading1', 'format' => 'decimal', 'text' => '%1'),
-                array('pStyle' => 'Heading2', 'format' => 'decimal', 'text' => '%1.%2'),
-                array('pStyle' => 'Heading3', 'format' => 'decimal', 'text' => '%1.%2.%3'),
-            )
-        )
-    );
+    // Adding an empty Section to the document...
+    $section = $ReportTemplate->addReportSection($phpWord);
 
-    $phpWord->addTitleStyle(1, ["bold" => true, "size" => 16], ["spaceBefore" => 8, 'numStyle' => 'hNum', 'numLevel' => 0]);
-    $phpWord->addTitleStyle(2, ["bold" => true, "size" => 14], ["spaceBefore" => 8, 'numStyle' => 'hNum', 'numLevel' => 1]);
-    $phpWord->addTitleStyle(3, ["bold" => true, "size" => 14], ["spaceBefore" => 8, 'numStyle' => 'hNum', 'numLevel' => 2]);
-
-    $phpWord->addTableStyle('ReportTable', ['borderSize' => 1, 'borderColor' => 'grey', 'cellMargin' => 80]);
+    $ReportTemplate->addReportFooter($section);
 
     $styleCell = ['valign' => 'center'];
     $styleText = [];
@@ -235,9 +258,6 @@ Route::post('/reports', function () {
     $styleParagraph =  ['spaceBefore' => 0, 'spaceAfter' => 0];
     $styleParagraphCenter =  ['spaceBefore' => 0, 'spaceAfter' => 0, 'align' => 'center'];
     $styleParagraphRight =  ['spaceBefore' => 0, 'spaceAfter' => 0, 'align' => 'right'];
-
-    // Adding an empty Section to the document...
-    $section = $phpWord->addSection();
 
 
     require_once BASEPATH . '/php/Report.php';
@@ -254,28 +274,42 @@ Route::post('/reports', function () {
         $endyear++;
     }
 
+    // set time and variables for the report
     $Report->setTime($startyear, $endyear, $startmonth, $endmonth);
     $vars = $_POST['var'] ?? [];
     $Report->setVariables($vars);
 
+    // Generate report content
     foreach ($Report->steps as $step) {
         try {
             switch ($step['type']) {
+                case 'toc':
+                    $section->addTOC();
+                    break;
                 case 'text':
                     $text = $Report->getText($step);
                     $level = $step['level'] ?? 'p';
                     switch ($level) {
                         case 'h1':
-                            $run = $section->addTextRun(['styleName' => 'Heading1']);
-                            \PhpOffice\PhpWord\Shared\Html::addHtml($run, $text, false, false);
+                            // Add h1 as a heading, not as a paragraph
+                            $textrun = new \PhpOffice\PhpWord\Element\TextRun(['styleName' => 'Heading1']);
+                            \PhpOffice\PhpWord\Shared\Html::addHtml($textrun, $text, false, false);
+                            $section->addTitle($textrun, 1);
                             break;
                         case 'h2':
-                            $run = $section->addTextRun(['styleName' => 'Heading2']);
-                            \PhpOffice\PhpWord\Shared\Html::addHtml($run, $text, false, false);
+                            $textrun = new \PhpOffice\PhpWord\Element\TextRun(['styleName' => 'Heading2']);
+                            \PhpOffice\PhpWord\Shared\Html::addHtml($textrun, $text, false, false);
+                            $section->addTitle($textrun, 2);
                             break;
                         case 'h3':
-                            $run = $section->addTextRun(['styleName' => 'Heading3']);
-                            \PhpOffice\PhpWord\Shared\Html::addHtml($run, $text, false, false);
+                            $textrun = new \PhpOffice\PhpWord\Element\TextRun(['styleName' => 'Heading3']);
+                            \PhpOffice\PhpWord\Shared\Html::addHtml($textrun, $text, false, false);
+                            $section->addTitle($textrun, 3);
+                            break;
+                        case 'h4':
+                            $textrun = new \PhpOffice\PhpWord\Element\TextRun(['styleName' => 'Heading4']);
+                            \PhpOffice\PhpWord\Shared\Html::addHtml($textrun, $text, false, false);
+                            $section->addTitle($textrun, 4);
                             break;
                         default:
                             $run = $section->addTextRun();
@@ -285,6 +319,45 @@ Route::post('/reports', function () {
                     break;
                 case 'line':
                     $section->addTextBreak(1);
+                    break;
+                case 'list':
+                    $list = $Report->prepareList($step);
+                    if (count($list) <= 1) {
+                        $name = $step['name'] ?? lang('List', 'Liste');
+                        $section->addText(lang('No data available for the selected criteria of ' . $name . '.', 'Keine Daten für die ausgewählten Kriterien von ' . $name . ' verfügbar.'), ['italic' => true]);
+                        break;
+                    }
+                    if (count($list[0]) > 1) {
+                        $table = $section->addTable('ReportTable');
+                        // table head
+                        $table->addRow();
+                        foreach ($list[0] as $h) {
+                            $cell = $table->addCell(3000, $styleCell);
+                            $line = clean_comment_export($h);
+                            \PhpOffice\PhpWord\Shared\Html::addHtml($cell, $line, false, false);
+                            // ->addText($h, $styleTextBold, $styleParagraph);
+                        }
+                        // table body
+                        foreach (array_slice($list, 1) as $row) {
+                            $table->addRow();
+                            foreach ($row as $text) {
+                                $style = $styleParagraph;
+                                if (is_numeric($text)) {
+                                    $style = $styleParagraphRight;
+                                }
+                                $cell = $table->addCell(3000, $styleCell); //->addText($cell, $styleText, $style);
+                                $line = clean_comment_export($text);
+                                \PhpOffice\PhpWord\Shared\Html::addHtml($cell, $line, false, false);
+                            }
+                        }
+                        break;
+                    } else {
+                        foreach ($list as $element) {
+                            $line = $element[0];
+                            $paragraph = $section->addTextRun();
+                            \PhpOffice\PhpWord\Shared\Html::addHtml($paragraph, $line, false, false);
+                        }
+                    }
                     break;
                 case 'activities':
                     $data = $Report->getActivities($step);
@@ -337,15 +410,19 @@ Route::post('/reports', function () {
                         }
                     }
                     break;
+                default:
+                    $html = "<p><b>" . lang('Unknown step type', 'Unbekannter Schritt-Typ') . ":</b> " . e($step['type'] ?? 'unknown') . "</p>";
+                    $html = clean_comment_export($html);
+                    \PhpOffice\PhpWord\Shared\Html::addHtml($section, $html, false, false);
             }
         } catch (Exception $e) {
             error_log("Report format error: " . $e->getMessage());
             $html = "<p><b>Report Error in " . e($step['type'] ?? 'unknown step') . ":</b> " . e($e->getMessage()) . "</p>";
+            $html = clean_comment_export($html);
+            \PhpOffice\PhpWord\Shared\Html::addHtml($section, $html, false, false);
         }
     }
 
-    $html = clean_comment_export($html);
-    \PhpOffice\PhpWord\Shared\Html::addHtml($section, $html, false, false);
 
     // Save file
     if ($_POST['format'] == 'html') {

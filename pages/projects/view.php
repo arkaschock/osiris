@@ -4,14 +4,14 @@
  * Page to see details on a single project
  * 
  * This file is part of the OSIRIS package.
- * Copyright (c) 2024 Julia Koblitz, OSIRIS Solutions GmbH
+ * Copyright (c) 2026 Julia Koblitz, OSIRIS Solutions GmbH
  * 
  * @link        /project/<id>
  *
  * @package     OSIRIS
  * @since       1.2.2
  * 
- * @copyright	Copyright (c) 2024 Julia Koblitz, OSIRIS Solutions GmbH
+ * @copyright	Copyright (c) 2026 Julia Koblitz, OSIRIS Solutions GmbH
  * @author		Julia Koblitz <julia.koblitz@osiris-solutions.de>
  * @license     MIT
  */
@@ -31,9 +31,13 @@ foreach ($persons as $p) {
         break;
     }
 }
-$edit_perm = ($project['created_by'] == $_SESSION['username'] || $Settings->hasPermission('projects.edit') || ($Settings->hasPermission('projects.edit-own') && $user_project));
+$edit_perm = (($project['created_by'] ?? '') == $_SESSION['username'] || $Settings->hasPermission('projects.edit') || ($Settings->hasPermission('projects.edit-own') && $user_project));
 
-$N = $osiris->activities->count(['projects' => $project['_id']]);
+$count_activities = $osiris->activities->count(['projects' => $project['_id']]);
+$count_spectrum = 0;
+if ($Settings->featureEnabled('spectrum')) {
+    $count_spectrum = $osiris->activities->count(['projects' => $project['_id'], 'openalex.topics.id' => ['$exists' => true]]);
+}
 
 $institute = $Settings->get('affiliation_details');
 
@@ -46,12 +50,17 @@ if (empty($institute) || !isset($institute['lat']) || empty($institute['lat'])) 
 
 $project_type = $Project->getProjectType($project['type'] ?? 'third-party');
 $parent = [];
-if (isset($project['parent_id'])) {
+$is_subproject = $project['subproject'] ?? false;
+if (isset($project['parent_id']) && $is_subproject) {
     $parent = $osiris->projects->findOne(['_id' => $project['parent_id']]);
     $project['collaborators'] = $parent['collaborators'] ?? [];
 }
 
-$subproject = $project['subproject'] ?? false;
+$has_subprojects = ($project_type['subprojects'] ?? false) && !$is_subproject;
+$children =[];
+if ($has_subprojects) {
+    $children = $osiris->projects->find(['parent_id' => $project['_id']])->toArray();
+}
 
 $nagoyaRelevant = false;
 // Nagoya information might be stored in proposal
@@ -131,7 +140,7 @@ $scope = $Project->getScope($collaborators);
 <div class="title mb-20">
 
     <b class="badge text-uppercase primary">
-        <?php if ($subproject) { ?>
+        <?php if ($is_subproject) { ?>
             <?= lang('Subproject', 'Teilprojekt') ?>
         <?php } else { ?>
             <?= lang('Project', 'Projekt') ?>
@@ -238,7 +247,7 @@ if ($topicsEnabled) {
         <i class="ph ph-tree-structure" aria-hidden="true"></i>
         <?= lang('Project', 'Projektdetails') ?>
     </a>
-    <?php if ($subproject) {
+    <?php if ($is_subproject) {
         // collaborators are inherited from parent project
         if (count($parent['collaborators'] ?? []) > 0) { ?>
             <a onclick="navigate('collabs')" id="btn-collabs" class="btn">
@@ -266,11 +275,11 @@ if ($topicsEnabled) {
         </a>
     <?php } ?>
 
-    <?php if ($N > 0) { ?>
+    <?php if ($count_activities > 0) { ?>
         <a onclick="navigate('activities')" id="btn-activities" class="btn">
             <i class="ph ph-suitcase" aria-hidden="true"></i>
             <?= lang('Activities', 'Aktivitäten') ?>
-            <span class="index"><?= $N ?></span>
+            <span class="index"><?= $count_activities ?></span>
         </a>
     <?php } elseif ($edit_perm || $Settings->hasPermission('projects.connect')) { ?>
         <a id="btn-activities" class="btn" href="#add-activity">
@@ -391,19 +400,17 @@ if ($topicsEnabled) {
                             </td>
                         </tr>
                     <?php } ?>
-                    <?php if (($project_type['subprojects'] ?? false) && !($subproject)) { ?>
+                    <?php if (($project_type['subprojects'] ?? false) && !($is_subproject)) { ?>
                         <tr>
                             <td>
                                 <span class="key">
                                     <?= lang('Subprojects', 'Teilprojekte') ?>
                                 </span>
-                                <?php if (count($project['subprojects'] ?? []) > 0) {
-                                    $Subproject = new Project();
-                                    foreach ($project['subprojects'] as $sub) {
-                                        $sub = $osiris->projects->findOne(['_id' => $sub]);
-                                        if (empty($sub)) continue;
-                                        $Subproject->setProject($sub);
-                                        echo $Subproject->widgetSubproject();
+                                <?php if (count($children ?? []) > 0) {
+                                    $SubProjectClass = new Project();
+                                    foreach ($children as $sub) {
+                                        $SubProjectClass->setProject($sub);
+                                        echo $SubProjectClass->widgetSubproject();
                                     }
                                 } ?>
                                 <?php if ($Settings->hasPermission('projects.add-subprojects')) { ?>
@@ -567,7 +574,7 @@ if ($topicsEnabled) {
         <?= lang('Collaborators', 'Kooperationspartner') ?>
     </h2>
 
-    <?php if ($edit_perm && !$subproject) { ?>
+    <?php if ($edit_perm && !$is_subproject) { ?>
         <div class="btn-toolbar mb-10">
             <a href="<?= ROOTPATH ?>/projects/collaborators/<?= $id ?>" class="btn primary">
                 <i class="ph ph-edit"></i>
@@ -576,7 +583,7 @@ if ($topicsEnabled) {
         </div>
     <?php } ?>
 
-    <?php if ($subproject) { ?>
+    <?php if ($is_subproject) { ?>
         <p class="text-primary">
             <i class="ph ph-info"></i>
             <?= lang('Based on parent project', 'Basierend auf dem übergeordneten Projekt') ?>
@@ -665,7 +672,7 @@ if ($topicsEnabled) {
 
     <script>
         const id = '<?= $_GET['project'] ?? null ?>';
-        const collaborator_id = '<?= ($subproject) ? strval($project['parent_id']) : $id ?>';
+        const collaborator_id = '<?= ($is_subproject) ? strval($project['parent_id']) : $id ?>';
         <?php if (empty($project['collaborators'] ?? array())) { ?>
             collabChart = true;
         <?php } ?>
@@ -678,7 +685,7 @@ if ($topicsEnabled) {
 
     <h2>
         <?= lang('Connected activities', 'Verknüpfte Aktivitäten') ?>
-        (<?= $N ?>)
+        (<?= $count_activities ?>)
     </h2>
 
     <div class="btn-toolbar mb-10">
@@ -691,7 +698,7 @@ if ($topicsEnabled) {
 
 
         <div class="dropdown with-arrow btn-group ">
-            <button class="btn primary" <?= $N == 0 ? 'disabled' : '' ?> data-toggle="dropdown" type="button" id="download-btn" aria-haspopup="true" aria-expanded="false">
+            <button class="btn primary" <?= $count_activities == 0 ? 'disabled' : '' ?> data-toggle="dropdown" type="button" id="download-btn" aria-haspopup="true" aria-expanded="false">
                 <i class="ph ph-download"></i> Download
                 <i class="ph ph-caret-down ml-5" aria-hidden="true"></i>
             </button>
@@ -734,7 +741,7 @@ if ($topicsEnabled) {
 
                             <div class="custom-radio ml-10">
                                 <input type="radio" name="format" id="format-bibtex" value="bibtex">
-                                <label for="format-bibtex">BibTex</label>
+                                <label for="format-bibtex">BibTeX</label>
                             </div>
 
                         </div>
@@ -766,20 +773,80 @@ if ($topicsEnabled) {
         <div id="timeline"></div>
     </div>
 
-    <div class="mt-20 w-full">
-        <table class="table dataTable responsive" id="activities-table">
-            <thead>
-                <tr>
-                    <th><?= lang('Type', 'Typ') ?></th>
-                    <th><?= lang('Activity', 'Aktivität') ?></th>
-                    <th></th>
-                </tr>
-            </thead>
-            <tbody>
-            </tbody>
-        </table>
-    </div>
+    <div class="row row-eq-spacing">
+        <div class="col-md">
 
+            <div class="mt-20 w-full">
+                <table class="table dataTable responsive" id="activities-table">
+                    <thead>
+                        <tr>
+                            <th><?= lang('Type', 'Typ') ?></th>
+                            <th><?= lang('Activity', 'Aktivität') ?></th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    </tbody>
+                </table>
+            </div>
+
+        </div>
+
+
+        <?php
+        if ($Settings->featureEnabled('spectrum') && $count_spectrum > 0) {
+            $spectrum = $osiris->activities->aggregate([
+                ['$match' => [
+                    'projects' => $project['_id'],
+                    'type' => 'publication',
+                    'openalex.topics' => ['$exists' => true, '$ne' => []]
+                ]],
+
+                // total number of matched activities
+                ['$unwind' => '$openalex.topics'],
+
+                // group by topic id
+                ['$group' => [
+                    '_id' => '$openalex.topics.id',
+                    'count' => ['$sum' => 1],
+                    'sumScore' => ['$sum' => '$openalex.topics.score'],
+                    'topic' => ['$first' => '$openalex.topics']
+                ]],
+
+                // compute averages + share
+                ['$addFields' => [
+                    'avg_score' => ['$divide' => ['$sumScore', '$count']],
+                    'share' => ['$divide' => ['$count', $count_spectrum]],
+                    // optional combined weight (tweakable)
+                    'weight' => ['$multiply' => [
+                        ['$divide' => ['$count', $count_spectrum]],
+                        ['$divide' => ['$sumScore', $count_spectrum]]
+                    ]]
+                ]],
+
+                // filter noise
+                ['$match' => ['share' => ['$gte' => 0.05]]],
+
+                ['$sort' => ['weight' => -1]],
+                ['$limit' => 25]
+            ])->toArray();
+        ?>
+            <div class="col-md">
+                <h3>
+                    <?= lang('Research Spectrum', 'Forschungs-Spektrum') ?>
+                </h3>
+                <?php
+                if (!empty($spectrum)) :
+                    include_once BASEPATH . "/php/Spectrum.php";
+                    Spectrum::render($spectrum, $count_spectrum);
+                else : ?>
+                    <p>
+                        <?= lang('No Research Spectrum is assigned to this unit.', 'Zu dieser Einheit ist kein Forschungs-Spektrum zugewiesen.') ?>
+                    </p>
+                <?php endif; ?>
+            </div>
+        <?php } ?>
+    </div>
 </section>
 
 
@@ -907,7 +974,7 @@ if ($topicsEnabled) {
                             console.log(data);
                             data.data.forEach(function(d) {
                                 $('#activity-suggest .suggestions').append(
-                                    `<a onclick="selectActivity(this)" data-id="${d.id.toString()}">${d.details.icon} ${d.details.plain}</a>`
+                                    `<a  data-id="${d.id.toString()}">${d.details.icon} ${d.details.plain}</a>`
                                 )
                             })
                             $('#activity-suggest .suggestions a')
